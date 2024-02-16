@@ -1,0 +1,59 @@
+{
+  "name": "light-fsm",
+  "description": "A lightweight finite state machine library",
+  "version": "0.3.0",
+  "license": "MIT",
+  "scripts": {
+    "test": "vitest --ui",
+    "test:run": "vitest run",
+    "lint": "pnpm tsc && pnpm eslint",
+    "tsc": "tsc -p tsconfig.prod.json",
+    "eslint": "CI=true eslint src/ scripts/ --color --max-warnings=0",
+    "build": "pnpm test:run && pnpm lint && pnpm build:no-test && pnpm build:update-exports",
+    "build:no-test": "tsup",
+    "build:update-exports": "tsm --no-warnings scripts/updatePackageExports.ts",
+    "build-test": "tsup --config tsup.test.config.ts",
+    "pre-publish": "./scripts/check-if-is-sync.sh && pnpm build"
+  },
+  "files": [
+    "dist"
+  ],
+  "repository": "github:lucasols/light-fsm",
+  "author": "Lucas Santos",
+  "type": "module",
+  "main": "./dist/main.cjs",
+  "module": "./dist/main.js",
+  "types": "./dist/main.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/main.js",
+      "require": "./dist/main.cjs"
+    }
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=21.5.0"
+  },
+  "devDependencies": {
+    "@lucasols/eslint-plugin-extended-lint": "^1.5.0",
+    "@lucasols/utils": "^4.19.2",
+    "@types/eslint": "^8.56.2",
+    "@types/eslint__js": "^8.42.3",
+    "@types/node": "^20.11.5",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0",
+    "@vitest/ui": "^1.2.1",
+    "eslint": "^8.56.0",
+    "eslint-plugin-vitest": "^0.3.20",
+    "prettier": "3.2.4",
+    "prettier-plugin-organize-imports": "^3.2.4",
+    "tsm": "^2.3.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.12",
+    "vitest": "^1.2.1"
+  },
+  "dependencies": {
+    "t-state": "^8.10.1"
+  }
+}
