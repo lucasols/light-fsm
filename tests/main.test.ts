@@ -2,6 +2,194 @@ import { describe, test, expect } from 'vitest';
 
 import { createFSM } from '../src/main.js';
 
+describe('transitions', () => {
+  test('should transition to the next state', () => {
+    const toggleMachine = createFSM({
+      initial: 'active',
+      states: {
+        active: {
+          on: { TOGGLE: 'inactive' },
+        },
+        inactive: {},
+      },
+    });
+
+    const toggleService = toggleMachine.interpret();
+
+    expect(toggleService.state).toBe('active');
+
+    toggleService.send('TOGGLE');
+
+    expect(toggleService.state).toBe('inactive');
+  });
+
+  test('should transition correctly', () => {
+    const nextState = lightFSM.transition('green', 'TIMER');
+    expect(nextState.value).toEqual('yellow');
+    expect(nextState.actions.map((action) => action.type)).toEqual([
+      'exitGreen',
+      'g-y 1',
+      'g-y 2',
+    ]);
+    expect(nextState.context).toEqual({
+      count: 2,
+      foo: 'static++',
+      go: false,
+    });
+  });
+
+  test('should stay on the same state for undefined transitions', () => {
+    const nextState = lightFSM.transition('green', 'FAKE' as any);
+    expect(nextState.value).toBe('green');
+    expect(nextState.actions).toEqual([]);
+  });
+
+  describe('when a wildcard transition is defined', () => {
+    type Event = { type: 'event' };
+    type State =
+      | { value: 'pass'; context: {} }
+      | { value: 'fail'; context: {} };
+    test('should not use a wildcard when an unguarded transition matches', () => {
+      const machine = createMachine<{}, Event, State>({
+        initial: 'fail',
+        states: { fail: { on: { event: 'pass', '*': 'fail' } }, pass: {} },
+      });
+      const nextState = machine.transition(machine.initialState, 'event');
+      expect(nextState.value).toBe('pass');
+    });
+
+    test('should not use a wildcard when a guarded transition matches', () => {
+      const machine = createMachine<{}, Event, State>({
+        initial: 'fail',
+        states: {
+          fail: {
+            on: { event: { target: 'pass', cond: () => true }, '*': 'fail' },
+          },
+          pass: {},
+        },
+      });
+      const nextState = machine.transition(machine.initialState, 'event');
+      expect(nextState.value).toBe('pass');
+    });
+
+    test('should use a wildcard when no guarded transition matches', () => {
+      const machine = createMachine<{}, Event, State>({
+        initial: 'fail',
+        states: {
+          fail: {
+            on: { event: { target: 'fail', cond: () => false }, '*': 'pass' },
+          },
+          pass: {},
+        },
+      });
+      const nextState = machine.transition(machine.initialState, 'event');
+      expect(nextState.value).toBe('pass');
+    });
+
+    test('should use a wildcard when no transition matches', () => {
+      const machine = createMachine<{}, Event, State>({
+        initial: 'fail',
+        states: { fail: { on: { event: 'fail', '*': 'pass' } }, pass: {} },
+      });
+      const nextState = machine.transition(machine.initialState, 'FAKE' as any);
+      expect(nextState.value).toBe('pass');
+    });
+
+    test("should throw an error when an event's type is the wildcard", () => {
+      const machine = createMachine<{}, Event, State>({
+        initial: 'fail',
+        states: { pass: {}, fail: {} },
+      });
+      expect(() => machine.transition('fail', '*' as any)).toThrow(
+        /wildcard type/,
+      );
+    });
+  });
+
+  test('should throw an error for undefined states', () => {
+    expect(() => {
+      lightFSM.transition('unknown', 'TIMER');
+    }).toThrow();
+  });
+
+  test('should throw an error for undefined next state config', () => {
+    const invalidState = 'blue';
+    const testConfig = {
+      id: 'test',
+      initial: 'green',
+      states: {
+        green: {
+          on: {
+            TARGET_INVALID: invalidState,
+          },
+        },
+        yellow: {},
+      },
+    };
+    const testMachine = createMachine(testConfig);
+
+    expect(() => {
+      testMachine.transition('green', 'TARGET_INVALID');
+    }).toThrow(
+      `State '${invalidState}' not found on machine ${testConfig.id ?? ''}`,
+    );
+  });
+
+  test('should work with guards', () => {
+    const yellowState = lightFSM.transition('yellow', 'EMERGENCY');
+    expect(yellowState.value).toEqual('yellow');
+
+    const redState = lightFSM.transition('yellow', {
+      type: 'EMERGENCY',
+      value: 2,
+    });
+    expect(redState.value).toEqual('red');
+    expect(redState.context.count).toBe(0);
+
+    const yellowOneState = lightFSM.transition('yellow', 'INC');
+    const redOneState = lightFSM.transition(yellowOneState, {
+      type: 'EMERGENCY',
+      value: 1,
+    });
+
+    expect(redOneState.value).toBe('red');
+    expect(redOneState.context.count).toBe(1);
+  });
+
+  test('should be changed if state changes', () => {
+    expect(lightFSM.transition('green', 'TIMER').changed).toBe(true);
+  });
+
+  test('should be changed if any actions occur', () => {
+    expect(lightFSM.transition('yellow', 'INC').changed).toBe(true);
+  });
+
+  test('should not be changed on unknown transitions', () => {
+    expect(lightFSM.transition('yellow', 'UNKNOWN' as any).changed).toBe(false);
+  });
+
+  test('should match initialState', () => {
+    const { initialState } = lightFSM;
+
+    expect(initialState.matches('green')).toBeTruthy();
+
+    if (initialState.matches('green')) {
+      expect(initialState.context.go).toBeTruthy();
+    }
+  });
+
+  test('should match transition states', () => {
+    const { initialState } = lightFSM;
+    const nextState = lightFSM.transition(initialState, 'TIMER');
+
+    expect(nextState.matches('yellow')).toBeTruthy();
+
+    if (nextState.matches('yellow')) {
+      expect(nextState.context.go).toBeFalsy();
+    }
+  });
+});
+
 describe('interpreter', () => {
   type States = 'active' | 'inactive';
 
@@ -21,29 +209,17 @@ describe('interpreter', () => {
     expect(toggleService.state).toBe('active');
   });
 
-  test('listeners should subscribe to state changes', (done) => {
-    const toggleService = interpret(toggleMachine).start();
-
-    toggleService.subscribe((state) => {
-      if (state.matches('inactive')) {
-        done();
-      }
-    });
-
-    toggleService.send('TOGGLE');
-  });
-
-  test('should execute actions', (done) => {
+  test('should execute actions', () => {
     let executed = false;
 
-    const actionMachine = createMachine({
+    const actionMachine = createFSM<States>({
       initial: 'active',
       states: {
         active: {
           on: {
             TOGGLE: {
               target: 'inactive',
-              actions: () => {
+              entry: () => {
                 executed = true;
               },
             },
@@ -53,21 +229,17 @@ describe('interpreter', () => {
       },
     });
 
-    const actionService = interpret(actionMachine).start();
-
-    actionService.subscribe(() => {
-      if (executed) {
-        done();
-      }
-    });
+    const actionService = actionMachine.interpret();
 
     actionService.send('TOGGLE');
+
+    expect(executed).toBe(true);
   });
 
   test('should execute initial entry action', () => {
     let executed = false;
 
-    const machine = createMachine({
+    const machine = createFSM({
       initial: 'foo',
       states: {
         foo: {
@@ -78,7 +250,8 @@ describe('interpreter', () => {
       },
     });
 
-    interpret(machine).start();
+    machine.interpret();
+
     expect(executed).toBe(true);
   });
 
@@ -124,7 +297,7 @@ describe('interpreter', () => {
     expect(service.state.context).toEqual({ foo: 'bar' });
   });
 
-  test('should reveal the current state after transition', (done) => {
+  test('should reveal the current state after transition', () => {
     const machine = createMachine({
       initial: 'test',
       context: { foo: 'bar' },
