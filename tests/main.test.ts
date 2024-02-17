@@ -31,6 +31,18 @@ const lightFSMConfig: FSMConfig<{ states: LightStates; events: LightEvents }> =
     },
   };
 
+test('initial state should be set correctly', () => {
+  const lightState = createFSM(lightFSMConfig);
+
+  expect(lightState.snapshot).toMatchInlineSnapshot(`
+    {
+      "done": false,
+      "prev": undefined,
+      "value": "green",
+    }
+  `);
+});
+
 test('should transition correctly', () => {
   const lightState = createFSM(lightFSMConfig);
 
@@ -229,8 +241,10 @@ test('should execute initial entry action', () => {
     initial: 'foo',
     states: {
       foo: {
-        entry: () => {
+        entry: ({ prev }) => {
           executed = true;
+
+          expect(prev).toBe(undefined);
         },
       },
     },

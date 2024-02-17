@@ -48,7 +48,7 @@ export function createFSM<Props extends FSMProps = never>({
   const store = new Store<StoreState>({
     state: {
       value: initial,
-      prev: initial,
+      prev: undefined,
       done: false,
     },
   });
