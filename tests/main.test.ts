@@ -1,495 +1,434 @@
-import { describe, test, expect } from 'vitest';
+import { expect, test } from 'vitest';
 
-import { createFSM } from '../src/main.js';
+import { sleep } from '@lucasols/utils/sleep';
 
-describe('transitions', () => {
-  test('should transition to the next state', () => {
-    const toggleMachine = createFSM({
-      initial: 'active',
-      states: {
-        active: {
-          on: { TOGGLE: 'inactive' },
+import { FSMConfig, createFSM } from '../src/main.js';
+
+type LightStates = 'green' | 'yellow' | 'red' | 'emergency';
+type LightEvents = 'TIMER_END' | 'EMERGENCY';
+
+const lightFSMConfig: FSMConfig<{ states: LightStates; events: LightEvents }> =
+  {
+    initial: 'green',
+    states: {
+      green: {
+        on: {
+          TIMER_END: 'yellow',
         },
-        inactive: {},
       },
-    });
-
-    const toggleService = toggleMachine.interpret();
-
-    expect(toggleService.state).toBe('active');
-
-    toggleService.send('TOGGLE');
-
-    expect(toggleService.state).toBe('inactive');
-  });
-
-  test('should transition correctly', () => {
-    const nextState = lightFSM.transition('green', 'TIMER');
-    expect(nextState.value).toEqual('yellow');
-    expect(nextState.actions.map((action) => action.type)).toEqual([
-      'exitGreen',
-      'g-y 1',
-      'g-y 2',
-    ]);
-    expect(nextState.context).toEqual({
-      count: 2,
-      foo: 'static++',
-      go: false,
-    });
-  });
-
-  test('should stay on the same state for undefined transitions', () => {
-    const nextState = lightFSM.transition('green', 'FAKE' as any);
-    expect(nextState.value).toBe('green');
-    expect(nextState.actions).toEqual([]);
-  });
-
-  describe('when a wildcard transition is defined', () => {
-    type Event = { type: 'event' };
-    type State =
-      | { value: 'pass'; context: {} }
-      | { value: 'fail'; context: {} };
-    test('should not use a wildcard when an unguarded transition matches', () => {
-      const machine = createMachine<{}, Event, State>({
-        initial: 'fail',
-        states: { fail: { on: { event: 'pass', '*': 'fail' } }, pass: {} },
-      });
-      const nextState = machine.transition(machine.initialState, 'event');
-      expect(nextState.value).toBe('pass');
-    });
-
-    test('should not use a wildcard when a guarded transition matches', () => {
-      const machine = createMachine<{}, Event, State>({
-        initial: 'fail',
-        states: {
-          fail: {
-            on: { event: { target: 'pass', cond: () => true }, '*': 'fail' },
-          },
-          pass: {},
+      yellow: {
+        on: {
+          TIMER_END: 'red',
+          EMERGENCY: 'emergency',
         },
-      });
-      const nextState = machine.transition(machine.initialState, 'event');
-      expect(nextState.value).toBe('pass');
-    });
-
-    test('should use a wildcard when no guarded transition matches', () => {
-      const machine = createMachine<{}, Event, State>({
-        initial: 'fail',
-        states: {
-          fail: {
-            on: { event: { target: 'fail', cond: () => false }, '*': 'pass' },
-          },
-          pass: {},
-        },
-      });
-      const nextState = machine.transition(machine.initialState, 'event');
-      expect(nextState.value).toBe('pass');
-    });
-
-    test('should use a wildcard when no transition matches', () => {
-      const machine = createMachine<{}, Event, State>({
-        initial: 'fail',
-        states: { fail: { on: { event: 'fail', '*': 'pass' } }, pass: {} },
-      });
-      const nextState = machine.transition(machine.initialState, 'FAKE' as any);
-      expect(nextState.value).toBe('pass');
-    });
-
-    test("should throw an error when an event's type is the wildcard", () => {
-      const machine = createMachine<{}, Event, State>({
-        initial: 'fail',
-        states: { pass: {}, fail: {} },
-      });
-      expect(() => machine.transition('fail', '*' as any)).toThrow(
-        /wildcard type/,
-      );
-    });
-  });
-
-  test('should throw an error for undefined states', () => {
-    expect(() => {
-      lightFSM.transition('unknown', 'TIMER');
-    }).toThrow();
-  });
-
-  test('should throw an error for undefined next state config', () => {
-    const invalidState = 'blue';
-    const testConfig = {
-      id: 'test',
-      initial: 'green',
-      states: {
-        green: {
-          on: {
-            TARGET_INVALID: invalidState,
-          },
-        },
-        yellow: {},
       },
-    };
-    const testMachine = createMachine(testConfig);
+      red: {
+        on: {
+          TIMER_END: 'green',
+        },
+      },
+      emergency: {},
+    },
+  };
 
-    expect(() => {
-      testMachine.transition('green', 'TARGET_INVALID');
-    }).toThrow(
-      `State '${invalidState}' not found on machine ${testConfig.id ?? ''}`,
-    );
-  });
+test('should transition correctly', () => {
+  const lightState = createFSM(lightFSMConfig);
 
-  test('should work with guards', () => {
-    const yellowState = lightFSM.transition('yellow', 'EMERGENCY');
-    expect(yellowState.value).toEqual('yellow');
+  expect(lightState.state).toEqual('green');
 
-    const redState = lightFSM.transition('yellow', {
-      type: 'EMERGENCY',
-      value: 2,
-    });
-    expect(redState.value).toEqual('red');
-    expect(redState.context.count).toBe(0);
+  lightState.send('TIMER_END');
 
-    const yellowOneState = lightFSM.transition('yellow', 'INC');
-    const redOneState = lightFSM.transition(yellowOneState, {
-      type: 'EMERGENCY',
-      value: 1,
-    });
+  expect(lightState.state).toEqual('yellow');
 
-    expect(redOneState.value).toBe('red');
-    expect(redOneState.context.count).toBe(1);
-  });
+  lightState.send('TIMER_END');
 
-  test('should be changed if state changes', () => {
-    expect(lightFSM.transition('green', 'TIMER').changed).toBe(true);
-  });
+  expect(lightState.state).toEqual('red');
 
-  test('should be changed if any actions occur', () => {
-    expect(lightFSM.transition('yellow', 'INC').changed).toBe(true);
-  });
+  lightState.send('TIMER_END');
 
-  test('should not be changed on unknown transitions', () => {
-    expect(lightFSM.transition('yellow', 'UNKNOWN' as any).changed).toBe(false);
-  });
+  expect(lightState.state).toEqual('green');
 
-  test('should match initialState', () => {
-    const { initialState } = lightFSM;
-
-    expect(initialState.matches('green')).toBeTruthy();
-
-    if (initialState.matches('green')) {
-      expect(initialState.context.go).toBeTruthy();
+  expect(lightState.snapshot).toMatchInlineSnapshot(`
+    {
+      "done": false,
+      "prev": "red",
+      "value": "green",
     }
-  });
-
-  test('should match transition states', () => {
-    const { initialState } = lightFSM;
-    const nextState = lightFSM.transition(initialState, 'TIMER');
-
-    expect(nextState.matches('yellow')).toBeTruthy();
-
-    if (nextState.matches('yellow')) {
-      expect(nextState.context.go).toBeFalsy();
-    }
-  });
+  `);
 });
 
-describe('interpreter', () => {
-  type States = 'active' | 'inactive';
+test('should stay on the same state for undefined transitions', () => {
+  const lightState = createFSM(lightFSMConfig);
 
-  const toggleMachine = createFSM<States>({
+  lightState.send('FAKE' as LightEvents);
+
+  expect(lightState.state).toBe('green');
+});
+
+test('end state should not transition', () => {
+  const lightState = createFSM(lightFSMConfig);
+
+  lightState.send('TIMER_END');
+
+  lightState.send('EMERGENCY');
+
+  expect(lightState.state).toBe('emergency');
+
+  const result = lightState.send('TIMER_END');
+
+  expect(lightState.state).toBe('emergency');
+
+  expect(result).toMatchInlineSnapshot(`
+    {
+      "changed": false,
+      "snapshot": {
+        "done": false,
+        "prev": "yellow",
+        "value": "emergency",
+      },
+    }
+  `);
+});
+
+test('state independent transitions', () => {
+  const feedbackMachine = createFSM<{
+    states: 'prompt' | 'thanks' | 'closed';
+    events: 'CLICK' | 'CLOSE';
+  }>({
+    initial: 'prompt',
+    states: {
+      prompt: {
+        on: {
+          CLICK: 'thanks',
+        },
+      },
+      thanks: {},
+      closed: {},
+    },
+    on: {
+      CLOSE: 'closed',
+    },
+  });
+
+  expect(feedbackMachine.state).toBe('prompt');
+
+  feedbackMachine.send('CLICK');
+
+  expect(feedbackMachine.state).toBe('thanks');
+
+  feedbackMachine.send('CLOSE');
+
+  expect(feedbackMachine.state).toBe('closed');
+});
+
+test('final states', () => {
+  const feedbackMachine = createFSM<{
+    states: 'prompt' | 'thanks' | 'closed';
+    events: 'CLICK' | 'CLOSE' | 'RESET';
+  }>({
+    initial: 'prompt',
+    states: {
+      prompt: {
+        on: {
+          CLICK: 'thanks',
+        },
+      },
+      thanks: {},
+      closed: {
+        final: true,
+      },
+    },
+    on: {
+      CLOSE: 'closed',
+      RESET: 'prompt',
+    },
+  });
+
+  feedbackMachine.send('CLOSE');
+
+  expect(feedbackMachine.state).toBe('closed');
+
+  const result = feedbackMachine.send('RESET');
+
+  expect(result.changed).toBe(false);
+
+  expect(feedbackMachine.state).toBe('closed');
+});
+
+test('should execute event actions', () => {
+  let executed = false;
+
+  const toogleMachine = createFSM<{
+    states: 'active' | 'inactive';
+    events: 'TOGGLE';
+  }>({
     initial: 'active',
     states: {
       active: {
-        on: { TOGGLE: 'inactive' },
+        on: {
+          TOGGLE: {
+            target: 'inactive',
+            action: () => {
+              executed = true;
+            },
+          },
+        },
       },
       inactive: {},
     },
   });
 
-  test('initial state is set correctly', () => {
-    const toggleService = toggleMachine.interpret();
+  toogleMachine.send('TOGGLE');
 
-    expect(toggleService.state).toBe('active');
-  });
+  expect(toogleMachine.state).toBe('inactive');
 
-  test('should execute actions', () => {
-    let executed = false;
+  expect(executed).toBe(true);
+});
 
-    const actionMachine = createFSM<States>({
-      initial: 'active',
-      states: {
-        active: {
-          on: {
-            TOGGLE: {
-              target: 'inactive',
-              entry: () => {
-                executed = true;
-              },
-            },
-          },
-        },
-        inactive: {},
-      },
-    });
+test('should execute actions on state independent transitions', () => {
+  let executed = false;
 
-    const actionService = actionMachine.interpret();
-
-    actionService.send('TOGGLE');
-
-    expect(executed).toBe(true);
-  });
-
-  test('should execute initial entry action', () => {
-    let executed = false;
-
-    const machine = createFSM({
-      initial: 'foo',
-      states: {
-        foo: {
-          entry: () => {
-            executed = true;
-          },
+  const feedbackMachine = createFSM<{
+    states: 'prompt' | 'thanks' | 'closed';
+    events: 'CLICK' | 'CLOSE' | 'RESET';
+  }>({
+    initial: 'prompt',
+    states: {
+      prompt: {
+        on: {
+          CLICK: 'thanks',
         },
       },
-    });
-
-    machine.interpret();
-
-    expect(executed).toBe(true);
+      thanks: {},
+      closed: {
+        final: true,
+      },
+    },
+    on: {
+      CLOSE: {
+        target: 'closed',
+        action: () => {
+          executed = true;
+        },
+      },
+    },
   });
 
-  test('should lookup string actions in options', () => {
-    let executed = false;
+  feedbackMachine.send('CLOSE');
 
-    const machine = createMachine(
-      {
-        initial: 'foo',
-        states: {
-          foo: {
-            entry: 'testAction',
+  expect(executed).toBe(true);
+});
+
+test('should execute initial entry action', () => {
+  let executed = false;
+
+  createFSM<{
+    states: 'foo';
+    events: never;
+  }>({
+    initial: 'foo',
+    states: {
+      foo: {
+        entry: () => {
+          executed = true;
+        },
+      },
+    },
+  });
+
+  expect(executed).toBe(true);
+});
+
+test('should execute entry actions on transitions', () => {
+  let bExecuted = false;
+  let cExecuted = false;
+
+  const machine = createFSM<{
+    states: 'a' | 'b' | 'c';
+    events: 'NEXT';
+  }>({
+    initial: 'a',
+    states: {
+      a: {
+        on: {
+          NEXT: 'b',
+        },
+      },
+      b: {
+        entry: ({ next, prev }) => {
+          bExecuted = true;
+
+          expect(prev).toBe('a');
+          expect(next).toBe('b');
+        },
+        on: {
+          NEXT: 'c',
+        },
+      },
+      c: {
+        entry: ({ next, prev }) => {
+          cExecuted = true;
+
+          expect(prev).toBe('b');
+          expect(next).toBe('c');
+        },
+        on: {
+          NEXT: 'a',
+        },
+      },
+    },
+  });
+
+  machine.send('NEXT');
+
+  expect(bExecuted).toBe(true);
+  expect(machine.state).toBe('b');
+
+  machine.send('NEXT');
+
+  expect(cExecuted).toBe(true);
+  expect(machine.state).toBe('c');
+});
+
+test('should execute exit actions on transitions', () => {
+  let aExited = false;
+  let bExited = false;
+
+  const machine = createFSM<{
+    states: 'a' | 'b' | 'c';
+    events: 'NEXT';
+  }>({
+    initial: 'a',
+    states: {
+      a: {
+        exit: ({ prev, next }) => {
+          aExited = true;
+
+          expect(prev).toBe('a');
+          expect(next).toBe('b');
+        },
+        on: {
+          NEXT: 'b',
+        },
+      },
+      b: {
+        on: {
+          NEXT: 'a',
+        },
+        exit: ({ prev, next }) => {
+          bExited = true;
+
+          expect(prev).toBe('b');
+          expect(next).toBe('a');
+        },
+      },
+      c: {},
+    },
+  });
+
+  machine.send('NEXT');
+
+  expect(aExited).toBe(true);
+  expect(machine.state).toBe('b');
+
+  machine.send('NEXT');
+
+  expect(machine.state).toBe('a');
+  expect(bExited).toBe(true);
+});
+
+test('actions should be run in exit, transition actions, entry order', () => {
+  const actionsHistory: string[] = [];
+
+  const machine = createFSM<{
+    states: 'a' | 'b' | 'c';
+    events: 'NEXT';
+  }>({
+    initial: 'a',
+    states: {
+      a: {
+        exit: () => {
+          actionsHistory.push('exit a');
+        },
+        on: {
+          NEXT: {
+            target: 'b',
+            action: () => {
+              actionsHistory.push('transition a -> b');
+            },
           },
         },
       },
-      {
-        actions: {
-          testAction: () => {
-            executed = true;
-          },
+      b: {
+        entry: () => {
+          actionsHistory.push('entry b');
+        },
+        on: {
+          NEXT: 'a',
         },
       },
-    );
-
-    interpret(machine).start();
-
-    expect(executed).toBe(true);
+      c: {},
+    },
   });
 
-  test('should reveal the current state', () => {
-    const machine = createMachine({
-      initial: 'test',
-      context: { foo: 'bar' },
-      states: {
-        test: {},
-      },
-    });
-    const service = interpret(machine);
+  machine.send('NEXT');
 
-    service.start();
+  expect(actionsHistory).toEqual(['exit a', 'transition a -> b', 'entry b']);
+});
 
-    expect(service.state.value).toEqual('test');
-    expect(service.state.context).toEqual({ foo: 'bar' });
-  });
+test('send back events on transition actions', async () => {
+  const eventsHistory: string[] = [];
 
-  test('should reveal the current state after transition', () => {
-    const machine = createMachine({
-      initial: 'test',
-      context: { foo: 'bar' },
-      states: {
-        test: {
-          on: { CHANGE: 'success' },
-        },
-        success: {},
-      },
-    });
-    const service = interpret(machine);
+  const machine = createFSM<{
+    states: 'a' | 'b';
+    events: 'NEXT';
+  }>({
+    initial: 'a',
+    states: {
+      a: {
+        on: {
+          NEXT: {
+            target: 'b',
+            action: async ({ next, prev }) => {
+              eventsHistory.push(`${prev} -> ${next}`);
 
-    service.start();
+              await sleep(10);
 
-    service.subscribe(() => {
-      if (service.state.value === 'success') {
-        done();
-      }
-    });
+              eventsHistory.push('sendBack NEXT');
 
-    service.send('CHANGE');
-  });
-
-  test('should not re-execute exit/entry actions for transitions with undefined targets', () => {
-    const machine = createMachine({
-      initial: 'test',
-      states: {
-        test: {
-          entry: ['entry'],
-          exit: ['exit'],
-          on: {
-            EVENT: {
-              // undefined target
-              actions: ['action'],
+              machine.send('NEXT');
             },
           },
         },
       },
-    });
-
-    const { initialState } = machine;
-
-    expect(initialState.actions.map((a) => a.type)).toEqual(['entry']);
-
-    const nextState = machine.transition(initialState, 'EVENT');
-
-    expect(nextState.actions.map((a) => a.type)).toEqual(['action']);
+      b: {
+        on: {
+          NEXT: {
+            target: 'a',
+          },
+        },
+      },
+    },
   });
 
-  describe('`start` method', () => {
-    test('should start the service with initial state by default', () => {
-      const machine = createMachine({
-        initial: 'foo',
-        states: {
-          foo: {
-            on: {
-              NEXT: 'bar',
-            },
-          },
-          bar: {},
-        },
-      });
+  machine.send('NEXT');
 
-      const service = interpret(machine).start();
+  expect(machine.state).toBe('b');
 
-      expect(service.state.value).toBe('foo');
-    });
+  expect(eventsHistory).toMatchInlineSnapshot(`
+    [
+      "a -> b",
+    ]
+  `);
 
-    test('should rehydrate the state if the state if provided', () => {
-      const machine = createMachine({
-        initial: 'foo',
-        states: {
-          foo: {
-            on: {
-              NEXT: 'bar',
-            },
-          },
-          bar: {
-            on: {
-              NEXT: 'baz',
-            },
-          },
-          baz: {},
-        },
-      });
+  await sleep(15);
 
-      const service = interpret(machine).start('bar');
-      expect(service.state.value).toBe('bar');
+  expect(machine.state).toBe('a');
 
-      service.send('NEXT');
-      expect(service.state.matches('baz')).toBe(true);
-    });
-
-    test('should rehydrate the state and the context if both are provided', () => {
-      const machine = createMachine({
-        initial: 'foo',
-        states: {
-          foo: {
-            on: {
-              NEXT: 'bar',
-            },
-          },
-          bar: {
-            on: {
-              NEXT: 'baz',
-            },
-          },
-          baz: {},
-        },
-      });
-
-      const context = { hello: 'world' };
-      const service = interpret(machine).start({ value: 'bar', context });
-      expect(service.state.value).toBe('bar');
-      expect(service.state.context).toBe(context);
-
-      service.send('NEXT');
-      expect(service.state.matches('baz')).toBe(true);
-    });
-
-    test('should execute initial actions when re-starting a service', () => {
-      let entryActionCalled = false;
-      const machine = createMachine({
-        initial: 'test',
-        states: {
-          test: {
-            entry: () => (entryActionCalled = true),
-          },
-        },
-      });
-
-      const service = interpret(machine).start();
-      service.stop();
-
-      entryActionCalled = false;
-
-      service.start();
-
-      expect(entryActionCalled).toBe(true);
-    });
-
-    test('should execute initial actions when re-starting a service that transitioned to a different state', () => {
-      let entryActionCalled = false;
-      const machine = createMachine({
-        initial: 'a',
-        states: {
-          a: {
-            entry: () => (entryActionCalled = true),
-            on: {
-              NEXT: 'b',
-            },
-          },
-          b: {},
-        },
-      });
-
-      const service = interpret(machine).start();
-      service.send({ type: 'NEXT' });
-      service.stop();
-
-      entryActionCalled = false;
-
-      service.start();
-
-      expect(entryActionCalled).toBe(true);
-    });
-
-    test('should not execute actions of the last known non-initial state when re-starting a service', () => {
-      let entryActionCalled = false;
-      const machine = createMachine({
-        initial: 'a',
-        states: {
-          a: {
-            on: {
-              NEXT: 'b',
-            },
-          },
-          b: {
-            entry: () => (entryActionCalled = true),
-          },
-        },
-      });
-
-      const service = interpret(machine).start();
-      service.send({ type: 'NEXT' });
-      service.stop();
-
-      entryActionCalled = false;
-
-      service.start();
-
-      expect(entryActionCalled).toBe(false);
-    });
-  });
+  expect(eventsHistory).toMatchInlineSnapshot(`
+    [
+      "a -> b",
+      "sendBack NEXT",
+    ]
+  `);
 });

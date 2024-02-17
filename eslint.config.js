@@ -116,6 +116,7 @@ const config = [
 
       /* vitest */
       'vitest/no-identical-title': ERROR_IN_CI,
+      'vitest/expect-expect': ERROR_IN_CI,
 
       /* extended-lint */
       '@lucasols/extended-lint/no-unused-type-props-in-args': ERROR_IN_CI,

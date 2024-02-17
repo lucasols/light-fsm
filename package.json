@@ -36,22 +36,22 @@
   },
   "devDependencies": {
     "@lucasols/eslint-plugin-extended-lint": "^1.5.0",
-    "@lucasols/utils": "^4.19.2",
+    "@lucasols/utils": "^4.23.2",
     "@types/eslint": "^8.56.2",
     "@types/eslint__js": "^8.42.3",
-    "@types/node": "^20.11.5",
-    "@typescript-eslint/eslint-plugin": "^6.19.0",
-    "@typescript-eslint/parser": "^6.19.0",
-    "@vitest/ui": "^1.2.1",
+    "@types/node": "^20.11.19",
+    "@typescript-eslint/eslint-plugin": "^7.0.1",
+    "@typescript-eslint/parser": "^7.0.1",
+    "@vitest/ui": "^1.3.0",
     "eslint": "^8.56.0",
-    "eslint-plugin-vitest": "^0.3.20",
-    "prettier": "3.2.4",
+    "eslint-plugin-vitest": "^0.3.22",
+    "prettier": "3.2.5",
     "prettier-plugin-organize-imports": "^3.2.4",
     "tsm": "^2.3.0",
-    "tsup": "^8.0.1",
-    "typescript": "^5.3.3",
-    "vite": "^5.0.12",
-    "vitest": "^1.2.1"
+    "tsup": "^8.0.2",
+    "typescript": "5.4.0-beta",
+    "vite": "^5.1.3",
+    "vitest": "^1.3.0"
   },
   "dependencies": {
     "t-state": "^8.10.1"
