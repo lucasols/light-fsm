@@ -58,7 +58,7 @@ export function createFSM<Props extends FSMProps = never>({
   if (initialStateConfig.entry) {
     initialStateConfig.entry({
       next: initial,
-      prev: initial,
+      prev: undefined,
     });
   }
 
