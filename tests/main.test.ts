@@ -70,11 +70,22 @@ test('should transition correctly', () => {
 });
 
 test('should stay on the same state for undefined transitions', () => {
-  const lightState = createFSM(lightFSMConfig);
+  let err: Error | undefined;
+
+  const lightState = createFSM<{ states: LightStates; events: LightEvents }>({
+    ...lightFSMConfig,
+    handleInvalidTransition: (error) => {
+      err = error;
+    },
+  });
 
   lightState.send('FAKE' as LightEvents);
 
   expect(lightState.state).toBe('green');
+
+  expect(err).toMatchInlineSnapshot(
+    `[Error: Event 'FAKE' not allowed in state 'green']`,
+  );
 });
 
 test('end state should not transition', () => {
@@ -134,6 +145,8 @@ test('state independent transitions', () => {
 });
 
 test('final states', () => {
+  let err: Error | undefined;
+
   const feedbackMachine = createFSM<{
     states: 'prompt' | 'thanks' | 'closed';
     events: 'CLICK' | 'CLOSE' | 'RESET';
@@ -154,6 +167,9 @@ test('final states', () => {
       CLOSE: 'closed',
       RESET: 'prompt',
     },
+    handleInvalidTransition: (error) => {
+      err = error;
+    },
   });
 
   feedbackMachine.send('CLOSE');
@@ -165,6 +181,10 @@ test('final states', () => {
   expect(result.changed).toBe(false);
 
   expect(feedbackMachine.state).toBe('closed');
+
+  expect(err).toMatchInlineSnapshot(
+    `[Error: Cannot transition from final state 'closed']`,
+  );
 });
 
 test('should execute event actions', () => {
@@ -445,4 +465,54 @@ test('send back events on transition actions', async () => {
       "sendBack NEXT",
     ]
   `);
+});
+
+test('self transitions', () => {
+  const machine = createFSM<{
+    states: 'a';
+    events: 'NEXT';
+  }>({
+    initial: 'a',
+    states: {
+      a: {
+        on: {
+          NEXT: 'a',
+        },
+      },
+    },
+  });
+
+  machine.send('NEXT');
+
+  expect(machine.state).toBe('a');
+});
+
+test('self transitions should not execute actions', () => {
+  let executed = false;
+
+  const machine = createFSM<{
+    states: 'a';
+    events: 'NEXT';
+  }>({
+    initial: 'a',
+    states: {
+      a: {
+        exit: () => {
+          executed = true;
+        },
+        on: {
+          NEXT: {
+            target: 'a',
+            action: () => {
+              executed = true;
+            },
+          },
+        },
+      },
+    },
+  });
+
+  machine.send('NEXT');
+
+  expect(executed).toBe(false);
 });
