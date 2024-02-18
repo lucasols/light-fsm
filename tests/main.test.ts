@@ -5,7 +5,7 @@ import { sleep } from '@lucasols/utils/sleep';
 import { FSMConfig, createFSM } from '../src/main.js';
 
 type LightStates = 'green' | 'yellow' | 'red' | 'emergency';
-type LightEvents = 'TIMER_END' | 'EMERGENCY';
+type LightEvents = { type: 'TIMER_END' | 'EMERGENCY' };
 
 const lightFSMConfig: FSMConfig<{ states: LightStates; events: LightEvents }> =
   {
@@ -49,22 +49,24 @@ test('should transition correctly', () => {
 
   expect(lightState.state).toEqual('green');
 
-  lightState.send('TIMER_END');
+  lightState.send({ type: 'TIMER_END' });
 
   expect(lightState.state).toEqual('yellow');
 
-  lightState.send('TIMER_END');
+  lightState.send({ type: 'TIMER_END' });
 
   expect(lightState.state).toEqual('red');
 
-  lightState.send('TIMER_END');
+  lightState.send({ type: 'TIMER_END' });
 
   expect(lightState.state).toEqual('green');
 
   expect(lightState.snapshot).toMatchInlineSnapshot(`
     {
       "done": false,
-      "lastEvent": "TIMER_END",
+      "lastEvent": {
+        "type": "TIMER_END",
+      },
       "prev": "red",
       "value": "green",
     }
@@ -81,7 +83,7 @@ test('should stay on the same state for undefined transitions', () => {
     },
   });
 
-  lightState.send('FAKE' as LightEvents);
+  lightState.send({ type: 'FAKE' as LightEvents['type'] });
 
   expect(lightState.state).toBe('green');
 
@@ -93,13 +95,13 @@ test('should stay on the same state for undefined transitions', () => {
 test('end state should not transition', () => {
   const lightState = createFSM(lightFSMConfig);
 
-  lightState.send('TIMER_END');
+  lightState.send({ type: 'TIMER_END' });
 
-  lightState.send('EMERGENCY');
+  lightState.send({ type: 'EMERGENCY' });
 
   expect(lightState.state).toBe('emergency');
 
-  const result = lightState.send('TIMER_END');
+  const result = lightState.send({ type: 'TIMER_END' });
 
   expect(lightState.state).toBe('emergency');
 
@@ -108,7 +110,9 @@ test('end state should not transition', () => {
       "changed": false,
       "snapshot": {
         "done": false,
-        "lastEvent": "EMERGENCY",
+        "lastEvent": {
+          "type": "EMERGENCY",
+        },
         "prev": "yellow",
         "value": "emergency",
       },
@@ -119,7 +123,7 @@ test('end state should not transition', () => {
 test('state independent transitions', () => {
   const feedbackMachine = createFSM<{
     states: 'prompt' | 'thanks' | 'closed';
-    events: 'CLICK' | 'CLOSE';
+    events: { type: 'CLICK' | 'CLOSE' };
   }>({
     initial: 'prompt',
     states: {
@@ -138,11 +142,11 @@ test('state independent transitions', () => {
 
   expect(feedbackMachine.state).toBe('prompt');
 
-  feedbackMachine.send('CLICK');
+  feedbackMachine.send({ type: 'CLICK' });
 
   expect(feedbackMachine.state).toBe('thanks');
 
-  feedbackMachine.send('CLOSE');
+  feedbackMachine.send({ type: 'CLOSE' });
 
   expect(feedbackMachine.state).toBe('closed');
 });
@@ -152,7 +156,7 @@ test('final states', () => {
 
   const feedbackMachine = createFSM<{
     states: 'prompt' | 'thanks' | 'closed';
-    events: 'CLICK' | 'CLOSE' | 'RESET';
+    events: { type: 'CLICK' | 'CLOSE' | 'RESET' };
   }>({
     initial: 'prompt',
     states: {
@@ -175,11 +179,11 @@ test('final states', () => {
     },
   });
 
-  feedbackMachine.send('CLOSE');
+  feedbackMachine.send({ type: 'CLOSE' });
 
   expect(feedbackMachine.state).toBe('closed');
 
-  const result = feedbackMachine.send('RESET');
+  const result = feedbackMachine.send({ type: 'RESET' });
 
   expect(result.changed).toBe(false);
 
@@ -195,7 +199,7 @@ test('should execute event actions', () => {
 
   const toogleMachine = createFSM<{
     states: 'active' | 'inactive';
-    events: 'TOGGLE';
+    events: { type: 'TOGGLE' };
   }>({
     initial: 'active',
     states: {
@@ -213,7 +217,7 @@ test('should execute event actions', () => {
     },
   });
 
-  toogleMachine.send('TOGGLE');
+  toogleMachine.send({ type: 'TOGGLE' });
 
   expect(toogleMachine.state).toBe('inactive');
 
@@ -225,7 +229,7 @@ test('should execute actions on state independent transitions', () => {
 
   const feedbackMachine = createFSM<{
     states: 'prompt' | 'thanks' | 'closed';
-    events: 'CLICK' | 'CLOSE' | 'RESET';
+    events: { type: 'CLICK' | 'CLOSE' | 'RESET' };
   }>({
     initial: 'prompt',
     states: {
@@ -249,7 +253,7 @@ test('should execute actions on state independent transitions', () => {
     },
   });
 
-  feedbackMachine.send('CLOSE');
+  feedbackMachine.send({ type: 'CLOSE' });
 
   expect(executed).toBe(true);
 });
@@ -282,7 +286,7 @@ test('should execute entry actions on transitions', () => {
 
   const machine = createFSM<{
     states: 'a' | 'b' | 'c';
-    events: 'NEXT';
+    events: { type: 'NEXT' };
   }>({
     initial: 'a',
     states: {
@@ -316,12 +320,12 @@ test('should execute entry actions on transitions', () => {
     },
   });
 
-  machine.send('NEXT');
+  machine.send({ type: 'NEXT' });
 
   expect(bExecuted).toBe(true);
   expect(machine.state).toBe('b');
 
-  machine.send('NEXT');
+  machine.send({ type: 'NEXT' });
 
   expect(cExecuted).toBe(true);
   expect(machine.state).toBe('c');
@@ -333,7 +337,7 @@ test('should execute exit actions on transitions', () => {
 
   const machine = createFSM<{
     states: 'a' | 'b' | 'c';
-    events: 'NEXT';
+    events: { type: 'NEXT' };
   }>({
     initial: 'a',
     states: {
@@ -363,12 +367,12 @@ test('should execute exit actions on transitions', () => {
     },
   });
 
-  machine.send('NEXT');
+  machine.send({ type: 'NEXT' });
 
   expect(aExited).toBe(true);
   expect(machine.state).toBe('b');
 
-  machine.send('NEXT');
+  machine.send({ type: 'NEXT' });
 
   expect(machine.state).toBe('a');
   expect(bExited).toBe(true);
@@ -379,7 +383,7 @@ test('actions should be run in exit, transition actions, entry order', () => {
 
   const machine = createFSM<{
     states: 'a' | 'b' | 'c';
-    events: 'NEXT';
+    events: { type: 'NEXT' };
   }>({
     initial: 'a',
     states: {
@@ -408,7 +412,7 @@ test('actions should be run in exit, transition actions, entry order', () => {
     },
   });
 
-  machine.send('NEXT');
+  machine.send({ type: 'NEXT' });
 
   expect(actionsHistory).toEqual(['exit a', 'transition a -> b', 'entry b']);
 });
@@ -418,7 +422,7 @@ test('send back events on transition actions', async () => {
 
   const machine = createFSM<{
     states: 'a' | 'b';
-    events: 'NEXT';
+    events: { type: 'NEXT' };
   }>({
     initial: 'a',
     states: {
@@ -433,7 +437,7 @@ test('send back events on transition actions', async () => {
 
               eventsHistory.push('sendBack NEXT');
 
-              machine.send('NEXT');
+              machine.send({ type: 'NEXT' });
             },
           },
         },
@@ -448,7 +452,7 @@ test('send back events on transition actions', async () => {
     },
   });
 
-  machine.send('NEXT');
+  machine.send({ type: 'NEXT' });
 
   expect(machine.state).toBe('b');
 
@@ -473,7 +477,7 @@ test('send back events on transition actions', async () => {
 test('self transitions', () => {
   const machine = createFSM<{
     states: 'a';
-    events: 'NEXT';
+    events: { type: 'NEXT' };
   }>({
     initial: 'a',
     states: {
@@ -485,7 +489,7 @@ test('self transitions', () => {
     },
   });
 
-  machine.send('NEXT');
+  machine.send({ type: 'NEXT' });
 
   expect(machine.state).toBe('a');
 });
@@ -495,7 +499,7 @@ test('self transitions should not execute actions', () => {
 
   const machine = createFSM<{
     states: 'a';
-    events: 'NEXT';
+    events: { type: 'NEXT' };
   }>({
     initial: 'a',
     states: {
@@ -515,7 +519,7 @@ test('self transitions should not execute actions', () => {
     },
   });
 
-  machine.send('NEXT');
+  machine.send({ type: 'NEXT' });
 
   expect(executed).toBe(false);
 });
@@ -525,13 +529,13 @@ test('send back events on initial sync entry actions', () => {
 
   const machine = createFSM<{
     states: 'a' | 'b';
-    events: 'NEXT';
+    events: { type: 'NEXT' };
   }>({
     initial: 'a',
     states: {
       a: {
         entry: ({ send }) => {
-          send('NEXT');
+          send({ type: 'NEXT' });
           executed = true;
         },
         on: {
@@ -564,7 +568,7 @@ test('send back events on sync entry actions', () => {
 
   const machine = createFSM<{
     states: 'a' | 'b';
-    events: 'NEXT';
+    events: { type: 'NEXT' };
   }>({
     initial: 'a',
     states: {
@@ -575,7 +579,7 @@ test('send back events on sync entry actions', () => {
       },
       b: {
         entry: ({ send }) => {
-          send('NEXT');
+          send({ type: 'NEXT' });
           executed = true;
         },
         on: {
@@ -585,7 +589,7 @@ test('send back events on sync entry actions', () => {
     },
   });
 
-  machine.send('NEXT');
+  machine.send({ type: 'NEXT' });
 
   expect(machine.state).toBe('a');
 
@@ -597,7 +601,7 @@ test('send back events on sync transition actions', () => {
 
   const machine = createFSM<{
     states: 'a' | 'b';
-    events: 'NEXT';
+    events: { type: 'NEXT' };
   }>({
     initial: 'a',
     states: {
@@ -606,7 +610,7 @@ test('send back events on sync transition actions', () => {
           NEXT: {
             target: 'b',
             action: ({ send }) => {
-              send('NEXT');
+              send({ type: 'NEXT' });
               executed = true;
             },
           },
@@ -620,7 +624,7 @@ test('send back events on sync transition actions', () => {
     },
   });
 
-  const result = machine.send('NEXT');
+  const result = machine.send({ type: 'NEXT' });
 
   expect(machine.state).toBe('a');
 
@@ -629,7 +633,9 @@ test('send back events on sync transition actions', () => {
   expect(result.snapshot).toMatchInlineSnapshot(`
     {
       "done": false,
-      "lastEvent": "NEXT",
+      "lastEvent": {
+        "type": "NEXT",
+      },
       "prev": "a",
       "value": "b",
     }
@@ -639,7 +645,7 @@ test('send back events on sync transition actions', () => {
 test('return last sent event', () => {
   const machine = createFSM<{
     states: 'a' | 'b';
-    events: 'GO_TO_A' | 'GO_TO_B';
+    events: { type: 'GO_TO_A' | 'GO_TO_B' };
   }>({
     initial: 'a',
     states: {
@@ -656,11 +662,100 @@ test('return last sent event', () => {
     },
   });
 
-  machine.send('GO_TO_B');
+  machine.send({ type: 'GO_TO_B' });
 
-  expect(machine.snapshot.lastEvent).toBe('GO_TO_B');
+  expect(machine.snapshot.lastEvent).toStrictEqual({ type: 'GO_TO_B' });
 
-  machine.send('GO_TO_A');
+  machine.send({ type: 'GO_TO_A' });
 
-  expect(machine.snapshot.lastEvent).toBe('GO_TO_A');
+  expect(machine.snapshot.lastEvent).toStrictEqual({ type: 'GO_TO_A' });
+});
+
+test('entry/exit actions should receive the event that caused the transition', () => {
+  let entryEvent: string | undefined;
+  let exitEvent: string | undefined;
+
+  const machine = createFSM<{
+    states: 'idle' | 'a' | 'b';
+    events: { type: 'GO_TO_A' | 'GO_TO_B' };
+  }>({
+    initial: 'idle',
+    states: {
+      idle: {
+        on: {
+          GO_TO_A: 'a',
+        },
+      },
+      a: {
+        on: {
+          GO_TO_B: 'b',
+        },
+        entry: ({ event }) => {
+          entryEvent = event?.type;
+        },
+        exit: ({ event }) => {
+          exitEvent = event?.type;
+        },
+      },
+      b: {},
+    },
+  });
+
+  machine.send({ type: 'GO_TO_A' });
+
+  expect(entryEvent).toBe('GO_TO_A');
+  expect(exitEvent).toBe(undefined);
+
+  machine.send({ type: 'GO_TO_B' });
+
+  expect(exitEvent).toBe('GO_TO_B');
+});
+
+test('events with payload', () => {
+  const machine = createFSM<{
+    states: 'idle' | 'a' | 'b';
+    events:
+      | { type: 'GO_TO_A'; payload: number }
+      | { type: 'GO_TO_B'; payload: string };
+  }>({
+    initial: 'idle',
+    states: {
+      idle: {
+        on: {
+          GO_TO_A: 'a',
+        },
+      },
+      a: {
+        entry: ({ event }) => {
+          expect(event?.payload).toBe(1);
+        },
+        on: {
+          GO_TO_B: 'b',
+        },
+      },
+      b: {
+        entry: ({ event }) => {
+          expect(event?.payload).toBe('hello');
+        },
+      },
+    },
+  });
+
+  machine.send({ type: 'GO_TO_A', payload: 1 });
+
+  expect(machine.snapshot.lastEvent).toMatchInlineSnapshot(`
+    {
+      "payload": 1,
+      "type": "GO_TO_A",
+    }
+  `);
+
+  machine.send({ type: 'GO_TO_B', payload: 'hello' });
+
+  expect(machine.snapshot.lastEvent).toMatchInlineSnapshot(`
+    {
+      "payload": "hello",
+      "type": "GO_TO_B",
+    }
+  `);
 });

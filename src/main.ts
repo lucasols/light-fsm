@@ -2,12 +2,13 @@ import { Store } from 't-state';
 
 type FSMProps = {
   states: string;
-  events: string;
+  events: { type: string };
 };
 
 type ActionArgs<P extends FSMProps> = {
   next: P['states'];
   prev: P['states'];
+  event: P['events'] | undefined;
   send: (event: P['events']) => {
     changed: boolean;
   };
@@ -25,7 +26,7 @@ export type FSMConfig<P extends FSMProps> = {
   states: {
     [K in P['states']]: {
       on?: {
-        [E in P['events']]?: Target<P>;
+        [E in P['events']['type']]?: Target<P>;
       };
       final?: boolean;
       entry?: (
@@ -37,8 +38,11 @@ export type FSMConfig<P extends FSMProps> = {
     };
   };
   /** state independent transitions */
-  on?: { [E in P['events']]?: Target<P> };
-  handleInvalidTransition?: (error: Error) => void;
+  on?: { [E in P['events']['type']]?: Target<P> };
+  handleInvalidTransition?: (
+    error: Error,
+    state: { state: P['states']; event: P['events'] },
+  ) => void;
 };
 
 export function createFSM<Props extends FSMProps = never>({
@@ -73,6 +77,7 @@ export function createFSM<Props extends FSMProps = never>({
       next: initial,
       prev: undefined,
       send,
+      event: undefined,
     });
   }
 
@@ -87,6 +92,7 @@ export function createFSM<Props extends FSMProps = never>({
     if (currentStateConfig.final) {
       handleInvalidTransition?.(
         new Error(`Cannot transition from final state '${currentState}'`),
+        { state: currentState, event },
       );
 
       return {
@@ -95,7 +101,9 @@ export function createFSM<Props extends FSMProps = never>({
       };
     }
 
-    const nextTargetObj = currentStateConfig.on?.[event] || on?.[event];
+    const eventType = event.type as Props['events']['type'];
+
+    const nextTargetObj = currentStateConfig.on?.[eventType] || on?.[eventType];
 
     const nextState =
       typeof nextTargetObj === 'string' ? nextTargetObj : nextTargetObj?.target;
@@ -121,6 +129,7 @@ export function createFSM<Props extends FSMProps = never>({
           next: nextState,
           prev: currentState,
           send,
+          event,
         };
 
         currentStateConfig.exit?.(actionArgs);
@@ -134,7 +143,10 @@ export function createFSM<Props extends FSMProps = never>({
     } else {
       if (handleInvalidTransition && !nextState) {
         handleInvalidTransition(
-          new Error(`Event '${event}' not allowed in state '${currentState}'`),
+          new Error(
+            `Event '${event.type}' not allowed in state '${currentState}'`,
+          ),
+          { state: currentState, event },
         );
       }
     }
