@@ -37,6 +37,7 @@ test('initial state should be set correctly', () => {
   expect(lightState.snapshot).toMatchInlineSnapshot(`
     {
       "done": false,
+      "lastEvent": undefined,
       "prev": undefined,
       "value": "green",
     }
@@ -63,6 +64,7 @@ test('should transition correctly', () => {
   expect(lightState.snapshot).toMatchInlineSnapshot(`
     {
       "done": false,
+      "lastEvent": "TIMER_END",
       "prev": "red",
       "value": "green",
     }
@@ -106,6 +108,7 @@ test('end state should not transition', () => {
       "changed": false,
       "snapshot": {
         "done": false,
+        "lastEvent": "EMERGENCY",
         "prev": "yellow",
         "value": "emergency",
       },
@@ -626,6 +629,7 @@ test('send back events on sync transition actions', () => {
   expect(result.snapshot).toMatchInlineSnapshot(`
     {
       "done": false,
+      "lastEvent": "NEXT",
       "prev": "a",
       "value": "b",
     }
