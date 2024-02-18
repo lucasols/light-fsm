@@ -54,6 +54,9 @@ export function createFSM<Props extends FSMProps = never>({
   type States = Props['states'];
   type Events = Props['events'];
 
+  if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test')
+    checkUnreachableStates({ initial, states, on });
+
   type StoreState = {
     value: States;
     prev: States | undefined;
@@ -167,4 +170,64 @@ export function createFSM<Props extends FSMProps = never>({
     send,
     store,
   };
+}
+
+function typedObjEntries<T extends object>(obj: T): [keyof T, T[keyof T]][] {
+  return Object.entries(obj) as any;
+}
+
+function checkUnreachableStates<P extends FSMProps>(
+  config: FSMConfig<P>,
+): void {
+  const unreachableStates: string[] = [];
+
+  for (const state of Object.keys(config.states)) {
+    const isReachable = ((): boolean => {
+      if (state === config.initial) {
+        return true;
+      }
+
+      for (const [key, stateConfig] of typedObjEntries(config.states)) {
+        if (key === state) {
+          continue;
+        }
+
+        if (stateConfig.on) {
+          for (const [_, target] of typedObjEntries(stateConfig.on)) {
+            if (typeof target === 'object' && target.target === state) {
+              return true;
+            }
+
+            if (target === state) {
+              return true;
+            }
+          }
+        }
+      }
+
+      if (config.on) {
+        for (const [_, target] of typedObjEntries(config.on)) {
+          if (typeof target === 'object' && target.target === state) {
+            return true;
+          }
+
+          if (target === state) {
+            return true;
+          }
+        }
+      }
+
+      return false;
+    })();
+
+    if (!isReachable) {
+      unreachableStates.push(state);
+    }
+  }
+
+  if (unreachableStates.length > 0) {
+    throw new Error(
+      `Unreachable states detected: ${unreachableStates.join(', ')}`,
+    );
+  }
 }

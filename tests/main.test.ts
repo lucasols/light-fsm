@@ -363,7 +363,6 @@ test('should execute exit actions on transitions', () => {
           expect(next).toBe('a');
         },
       },
-      c: {},
     },
   });
 
@@ -408,7 +407,6 @@ test('actions should be run in exit, transition actions, entry order', () => {
           NEXT: 'a',
         },
       },
-      c: {},
     },
   });
 
@@ -758,4 +756,75 @@ test('events with payload', () => {
       "type": "GO_TO_B",
     }
   `);
+});
+
+test('detect unreachable states', () => {
+  expect(() => {
+    createFSM<{
+      states: 'a' | 'b';
+      events: { type: 'NEXT' };
+    }>({
+      initial: 'a',
+      states: {
+        a: {
+          on: {
+            NEXT: 'a',
+          },
+        },
+        b: {},
+      },
+    });
+  }).toThrowErrorMatchingInlineSnapshot(
+    `[Error: Unreachable states detected: b]`,
+  );
+
+  expect(() => {
+    createFSM<{
+      states: 'a' | 'b' | 'c';
+      events: { type: 'NEXT' };
+    }>({
+      initial: 'a',
+      states: {
+        a: {
+          on: {
+            NEXT: 'a',
+          },
+        },
+        b: {
+          on: {
+            NEXT: 'b',
+          },
+        },
+        c: {
+          on: {
+            NEXT: 'c',
+          },
+        },
+      },
+    });
+  }).toThrowErrorMatchingInlineSnapshot(
+    `[Error: Unreachable states detected: b, c]`,
+  );
+});
+
+test('not throw on unreachable state error', () => {
+  expect(() => {
+    createFSM<{
+      states: 'a' | 'b';
+      events: { type: 'NEXT' | 'GO_TO_B' };
+    }>({
+      initial: 'a',
+      states: {
+        a: {
+          on: {
+            NEXT: 'a',
+          },
+        },
+        b: {},
+      },
+      on: {
+        GO_TO_B: 'b',
+      },
+    });
+  }).not.toThrow();
 });
