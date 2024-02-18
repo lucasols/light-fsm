@@ -54,6 +54,7 @@ export function createFSM<Props extends FSMProps = never>({
     value: States;
     prev: States | undefined;
     done: boolean;
+    lastEvent: Events | undefined;
   };
 
   const store = new Store<StoreState>({
@@ -61,6 +62,7 @@ export function createFSM<Props extends FSMProps = never>({
       value: initial,
       prev: undefined,
       done: false,
+      lastEvent: undefined,
     },
   });
 
@@ -110,6 +112,7 @@ export function createFSM<Props extends FSMProps = never>({
           value: nextState,
           prev: currentState,
           done: Boolean(nextStateConfig.final),
+          lastEvent: event,
         });
 
         snapshot = store.state;

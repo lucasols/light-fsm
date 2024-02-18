@@ -547,7 +547,7 @@ test('send back events on initial sync entry actions', () => {
 
   machine.store.subscribe(() => {
     subscriberCalled = true;
-  })
+  });
 
   expect(machine.state).toBe('b');
 
@@ -630,4 +630,33 @@ test('send back events on sync transition actions', () => {
       "value": "b",
     }
   `);
+});
+
+test('return last sent event', () => {
+  const machine = createFSM<{
+    states: 'a' | 'b';
+    events: 'GO_TO_A' | 'GO_TO_B';
+  }>({
+    initial: 'a',
+    states: {
+      a: {
+        on: {
+          GO_TO_B: 'b',
+        },
+      },
+      b: {
+        on: {
+          GO_TO_A: 'a',
+        },
+      },
+    },
+  });
+
+  machine.send('GO_TO_B');
+
+  expect(machine.snapshot.lastEvent).toBe('GO_TO_B');
+
+  machine.send('GO_TO_A');
+
+  expect(machine.snapshot.lastEvent).toBe('GO_TO_A');
 });
