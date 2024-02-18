@@ -5,11 +5,19 @@ type FSMProps = {
   events: string;
 };
 
+type ActionArgs<P extends FSMProps> = {
+  next: P['states'];
+  prev: P['states'];
+  send: (event: P['events']) => {
+    changed: boolean;
+  };
+};
+
 type Target<P extends FSMProps> =
   | P['states']
   | {
       target: P['states'];
-      action?: (args: { next: P['states']; prev: P['states'] }) => void;
+      action?: (args: ActionArgs<P>) => void;
     };
 
 export type FSMConfig<P extends FSMProps> = {
@@ -20,11 +28,12 @@ export type FSMConfig<P extends FSMProps> = {
         [E in P['events']]?: Target<P>;
       };
       final?: boolean;
-      entry?: (args: {
-        next: P['states'];
-        prev: P['states'] | undefined;
-      }) => void;
-      exit?: (args: { next: P['states']; prev: P['states'] }) => void;
+      entry?: (
+        args: Omit<ActionArgs<P>, 'prev'> & {
+          prev: undefined | P['states'];
+        },
+      ) => void;
+      exit?: (args: ActionArgs<P>) => void;
     };
   };
   /** state independent transitions */
@@ -61,6 +70,7 @@ export function createFSM<Props extends FSMProps = never>({
     initialStateConfig.entry({
       next: initial,
       prev: undefined,
+      send,
     });
   }
 
@@ -90,26 +100,33 @@ export function createFSM<Props extends FSMProps = never>({
 
     const changed = !!(nextState && nextState !== currentState);
 
+    let snapshot = undefined as StoreState | undefined;
+
     if (changed) {
       const nextStateConfig = states[nextState];
 
-      const actionArgs = {
-        next: nextState,
-        prev: currentState,
-      };
+      store.batch(() => {
+        store.setState({
+          value: nextState,
+          prev: currentState,
+          done: Boolean(nextStateConfig.final),
+        });
 
-      currentStateConfig.exit?.(actionArgs);
+        snapshot = store.state;
 
-      if (typeof nextTargetObj !== 'string' && nextTargetObj) {
-        nextTargetObj.action?.(actionArgs);
-      }
+        const actionArgs = {
+          next: nextState,
+          prev: currentState,
+          send,
+        };
 
-      nextStateConfig.entry?.(actionArgs);
+        currentStateConfig.exit?.(actionArgs);
 
-      store.setState({
-        value: nextState,
-        prev: currentState,
-        done: Boolean(nextStateConfig.final),
+        if (typeof nextTargetObj !== 'string' && nextTargetObj) {
+          nextTargetObj.action?.(actionArgs);
+        }
+
+        nextStateConfig.entry?.(actionArgs);
       });
     } else {
       if (handleInvalidTransition && !nextState) {
@@ -121,7 +138,7 @@ export function createFSM<Props extends FSMProps = never>({
 
     return {
       changed,
-      snapshot: store.state,
+      snapshot: snapshot ?? store.state,
     };
   }
 

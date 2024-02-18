@@ -516,3 +516,118 @@ test('self transitions should not execute actions', () => {
 
   expect(executed).toBe(false);
 });
+
+test('send back events on initial sync entry actions', () => {
+  let executed = false;
+
+  const machine = createFSM<{
+    states: 'a' | 'b';
+    events: 'NEXT';
+  }>({
+    initial: 'a',
+    states: {
+      a: {
+        entry: ({ send }) => {
+          send('NEXT');
+          executed = true;
+        },
+        on: {
+          NEXT: 'b',
+        },
+      },
+      b: {
+        on: {
+          NEXT: 'a',
+        },
+      },
+    },
+  });
+
+  let subscriberCalled = false;
+
+  machine.store.subscribe(() => {
+    subscriberCalled = true;
+  })
+
+  expect(machine.state).toBe('b');
+
+  expect(executed).toBe(true);
+
+  expect(subscriberCalled).toBe(false);
+});
+
+test('send back events on sync entry actions', () => {
+  let executed = false;
+
+  const machine = createFSM<{
+    states: 'a' | 'b';
+    events: 'NEXT';
+  }>({
+    initial: 'a',
+    states: {
+      a: {
+        on: {
+          NEXT: 'b',
+        },
+      },
+      b: {
+        entry: ({ send }) => {
+          send('NEXT');
+          executed = true;
+        },
+        on: {
+          NEXT: 'a',
+        },
+      },
+    },
+  });
+
+  machine.send('NEXT');
+
+  expect(machine.state).toBe('a');
+
+  expect(executed).toBe(true);
+});
+
+test('send back events on sync transition actions', () => {
+  let executed = false;
+
+  const machine = createFSM<{
+    states: 'a' | 'b';
+    events: 'NEXT';
+  }>({
+    initial: 'a',
+    states: {
+      a: {
+        on: {
+          NEXT: {
+            target: 'b',
+            action: ({ send }) => {
+              send('NEXT');
+              executed = true;
+            },
+          },
+        },
+      },
+      b: {
+        on: {
+          NEXT: 'a',
+        },
+      },
+    },
+  });
+
+  const result = machine.send('NEXT');
+
+  expect(machine.state).toBe('a');
+
+  expect(executed).toBe(true);
+
+  expect(result.snapshot).toMatchInlineSnapshot(`
+    {
+      "done": false,
+      "prev": "a",
+      "value": "b",
+    }
+  `);
+});
