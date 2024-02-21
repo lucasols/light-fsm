@@ -336,7 +336,7 @@ test('should execute exit actions on transitions', () => {
   let bExited = false;
 
   const machine = createFSM<{
-    states: 'a' | 'b' | 'c';
+    states: 'a' | 'b';
     events: { type: 'NEXT' };
   }>({
     initial: 'a',
@@ -381,7 +381,7 @@ test('actions should be run in exit, transition actions, entry order', () => {
   const actionsHistory: string[] = [];
 
   const machine = createFSM<{
-    states: 'a' | 'b' | 'c';
+    states: 'a' | 'b';
     events: { type: 'NEXT' };
   }>({
     initial: 'a',
