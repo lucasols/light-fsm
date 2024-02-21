@@ -43,6 +43,7 @@ export type FSMConfig<P extends FSMProps> = {
     error: Error,
     state: { state: P['states']; event: P['events'] },
   ) => void;
+  debug?: string;
 };
 
 export function createFSM<Props extends FSMProps = never>({
@@ -50,6 +51,7 @@ export function createFSM<Props extends FSMProps = never>({
   states,
   on,
   handleInvalidTransition,
+  debug,
 }: FSMConfig<Props>) {
   type States = Props['states'];
   type Events = Props['events'];
@@ -143,6 +145,13 @@ export function createFSM<Props extends FSMProps = never>({
 
         nextStateConfig.entry?.(actionArgs);
       });
+
+      if (process.env.NODE_ENV === 'development' && debug) {
+        console.info(
+          `FSM:${debug} ${currentState} -> ${nextState} (event: ${event.type})`,
+          event,
+        );
+      }
     } else {
       if (handleInvalidTransition && !nextState) {
         handleInvalidTransition(
