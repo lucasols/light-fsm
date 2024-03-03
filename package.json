@@ -1,7 +1,7 @@
 {
   "name": "light-fsm",
   "description": "A lightweight finite state machine library",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "license": "MIT",
   "scripts": {
     "test": "vitest --ui",
