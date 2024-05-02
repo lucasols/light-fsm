@@ -21,6 +21,15 @@ type Target<P extends FSMProps> =
       action?: (args: ActionArgs<P>) => void;
     };
 
+/**
+ * Configuration object for the finite state machine.
+ * @typedef {Object} FSMConfig
+ * @property {string} initial - The initial state of the machine.
+ * @property {Object} states - The states of the machine and their configurations.
+ * @property {Object} [on] - State independent transitions.
+ * @property {Function} [handleInvalidTransition] - Function to handle invalid transitions.
+ * @property {string} [debug] - Debugging identifier.
+ */
 export type FSMConfig<P extends FSMProps> = {
   initial: P['states'];
   states: {
@@ -46,6 +55,11 @@ export type FSMConfig<P extends FSMProps> = {
   debug?: string;
 };
 
+/**
+ * Creates a finite state machine based on the provided configuration.
+ * @param {FSMConfig} config - The configuration object for the FSM.
+ * @returns An object representing the finite state machine.
+ */
 export function createFSM<Props extends FSMProps = never>({
   initial,
   states,
