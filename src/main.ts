@@ -3,6 +3,7 @@ import { Store } from 't-state';
 type FSMProps = {
   states: string;
   events: { type: string };
+  guards?: string;
 };
 
 type ActionArgs<P extends FSMProps> = {
@@ -14,19 +15,34 @@ type ActionArgs<P extends FSMProps> = {
   };
 };
 
+export type GuardFn<P extends FSMProps> = (args: {
+  current: P['states'];
+  prev: P['states'];
+  event: P['events'];
+}) => boolean;
+
 type Target<P extends FSMProps> =
   | P['states']
   | {
       target: P['states'];
+      guard?: P['guards'] | GuardFn<P>;
       action?: (args: ActionArgs<P>) => void;
     };
+
+type GuardedTarget<P extends FSMProps> = {
+  guard?: P['guards'] | GuardFn<P>;
+  target: Target<P>;
+  action?: (args: ActionArgs<P>) => void;
+};
+
+type Transitions<P extends FSMProps> = Target<P> | GuardedTarget<P>[];
 
 export type FSMConfig<P extends FSMProps> = {
   initial: P['states'];
   states: {
     [K in P['states']]: {
       on?: {
-        [E in P['events']['type']]?: Target<P>;
+        [E in P['events']['type']]?: Transitions<P>;
       };
       final?: boolean;
       entry?: (
@@ -38,26 +54,36 @@ export type FSMConfig<P extends FSMProps> = {
     };
   };
   /** state independent transitions */
-  on?: { [E in P['events']['type']]?: Target<P> };
+  on?: { [E in P['events']['type']]?: Transitions<P> };
   handleInvalidTransition?: (
     error: Error,
     state: { state: P['states']; event: P['events'] },
   ) => void;
   debug?: string;
-};
+} & (P['guards'] extends string ?
+  {
+    guards: {
+      [K in P['guards']]: boolean | (() => boolean);
+    };
+  }
+: { guards?: undefined });
 
-export function createFSM<Props extends FSMProps = never>({
+export function createFSM<Props extends FSMProps>({
   initial,
   states,
   on,
   handleInvalidTransition,
   debug,
+  guards,
 }: FSMConfig<Props>) {
   type States = Props['states'];
   type Events = Props['events'];
+  type Guards = Props['guards'];
+
+  type Action = (args: ActionArgs<Props>) => void;
 
   if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test')
-    checkUnreachableStates({ initial, states, on });
+    checkUnreachableStates(initial, states, on);
 
   type StoreState = {
     value: States;
@@ -86,6 +112,59 @@ export function createFSM<Props extends FSMProps = never>({
     });
   }
 
+  function getStateFromGuard(
+    guard: Guards | GuardFn<Props>,
+    target: Target<Props>,
+    event: Events,
+    prev: States,
+  ): States | null {
+    const targetState = typeof target === 'string' ? target : target.target;
+
+    if (guard === undefined) return targetState;
+
+    if (typeof guard === 'function') {
+      const guardResult = guard({
+        current: store.state.value,
+        prev,
+        event,
+      });
+
+      return guardResult ? targetState : null;
+    }
+
+    const guardResultOrFn = guards?.[guard];
+
+    if (guardResultOrFn === undefined) {
+      throw new Error(`Guard '${guard}' not found`);
+    }
+
+    const guardResult =
+      typeof guardResultOrFn === 'boolean' ? guardResultOrFn : (
+        guardResultOrFn()
+      );
+
+    return guardResult ? targetState : null;
+  }
+
+  function getStateFromGuards(
+    guardedTargets: GuardedTarget<Props>[],
+    event: Events,
+    prev: States,
+  ): null | { state: States; action?: Action } {
+    for (const guardedTarget of guardedTargets) {
+      const state = getStateFromGuard(
+        guardedTarget.guard,
+        guardedTarget.target,
+        event,
+        prev,
+      );
+
+      if (state) return { state, action: guardedTarget.action };
+    }
+
+    return null;
+  }
+
   function send(event: Events): {
     changed: boolean;
     snapshot: StoreState;
@@ -108,16 +187,50 @@ export function createFSM<Props extends FSMProps = never>({
 
     const eventType = event.type as Props['events']['type'];
 
-    const nextTargetObj = currentStateConfig.on?.[eventType] || on?.[eventType];
+    const nextTargetObj: Transitions<Props> | undefined =
+      currentStateConfig.on?.[eventType] || on?.[eventType];
 
-    const nextState =
-      typeof nextTargetObj === 'string' ? nextTargetObj : nextTargetObj?.target;
+    let nextState: States | null = null;
+    let action: Action | undefined = undefined;
+    let hasGuards = false;
+
+    if (nextTargetObj) {
+      if (typeof nextTargetObj === 'string') {
+        nextState = nextTargetObj;
+      }
+      //
+      else if (Array.isArray(nextTargetObj)) {
+        const state = getStateFromGuards(nextTargetObj, event, currentState);
+        hasGuards = true;
+
+        if (state) {
+          nextState = state.state;
+          action = state.action;
+        }
+      }
+      //
+      else if (nextTargetObj.guard) {
+        hasGuards = true;
+        nextState = getStateFromGuard(
+          nextTargetObj.guard,
+          nextTargetObj.target,
+          event,
+          currentState,
+        );
+        action = nextTargetObj.action;
+      }
+      //
+      else {
+        nextState = nextTargetObj.target;
+        action = nextTargetObj.action;
+      }
+    }
 
     const changed = !!(nextState && nextState !== currentState);
 
     let snapshot = undefined as StoreState | undefined;
 
-    if (changed) {
+    if (changed && nextState) {
       const nextStateConfig = states[nextState];
 
       store.batch(() => {
@@ -139,9 +252,7 @@ export function createFSM<Props extends FSMProps = never>({
 
         currentStateConfig.exit?.(actionArgs);
 
-        if (typeof nextTargetObj !== 'string' && nextTargetObj) {
-          nextTargetObj.action?.(actionArgs);
-        }
+        action?.(actionArgs);
 
         nextStateConfig.entry?.(actionArgs);
       });
@@ -153,7 +264,19 @@ export function createFSM<Props extends FSMProps = never>({
         );
       }
     } else {
-      if (handleInvalidTransition && !nextState) {
+      if (
+        process.env.NODE_ENV === 'development' &&
+        debug &&
+        !nextState &&
+        hasGuards
+      ) {
+        console.info(
+          `FSM:${debug} event: ${event.type} skipped due to guards`,
+          event,
+        );
+      }
+
+      if (handleInvalidTransition && !nextState && !hasGuards) {
         handleInvalidTransition(
           new Error(
             `Event '${event.type}' not allowed in state '${currentState}'`,
@@ -185,42 +308,75 @@ function typedObjEntries<T extends object>(obj: T): [keyof T, T[keyof T]][] {
   return Object.entries(obj) as any;
 }
 
-function checkUnreachableStates<P extends FSMProps>(
-  config: FSMConfig<P>,
+type MockConfig = FSMConfig<{
+  states: string;
+  events: { type: string };
+  guards?: string;
+}>;
+
+function checkUnreachableStates(
+  initial: string,
+  _states: FSMConfig<any>['states'],
+  _on: FSMConfig<any>['on'],
 ): void {
+  const states = _states as MockConfig['states'];
+  const on = _on as MockConfig['on'];
+
+  function isTargetState(
+    target:
+      | Transitions<{
+          states: string;
+          events: { type: string };
+          guards?: string;
+        }>
+      | undefined,
+    state: string,
+  ): boolean {
+    if (Array.isArray(target)) {
+      for (const guardedTarget of target) {
+        if (typeof guardedTarget.target === 'string') {
+          if (guardedTarget.target === state) {
+            return true;
+          }
+        } else if (guardedTarget.target.target === state) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    if (typeof target === 'object' && target.target === state) {
+      return true;
+    }
+
+    return target === state;
+  }
+
   const unreachableStates: string[] = [];
 
-  for (const state of Object.keys(config.states)) {
+  for (const state of Object.keys(states)) {
     const isReachable = ((): boolean => {
-      if (state === config.initial) {
+      if (state === initial) {
         return true;
       }
 
-      for (const [key, stateConfig] of typedObjEntries(config.states)) {
+      for (const [key, stateConfig] of typedObjEntries(states)) {
         if (key === state) {
           continue;
         }
 
         if (stateConfig.on) {
           for (const [_, target] of typedObjEntries(stateConfig.on)) {
-            if (typeof target === 'object' && target.target === state) {
-              return true;
-            }
-
-            if (target === state) {
+            if (isTargetState(target, state)) {
               return true;
             }
           }
         }
       }
 
-      if (config.on) {
-        for (const [_, target] of typedObjEntries(config.on)) {
-          if (typeof target === 'object' && target.target === state) {
-            return true;
-          }
-
-          if (target === state) {
+      if (on) {
+        for (const [_, target] of typedObjEntries(on)) {
+          if (isTargetState(target, state)) {
             return true;
           }
         }

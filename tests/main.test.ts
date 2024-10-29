@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 
-import { sleep } from '@lucasols/utils/sleep';
+import { sleep } from '@ls-stack/utils/sleep';
 
 import { FSMConfig, createFSM } from '../src/main.js';
 
