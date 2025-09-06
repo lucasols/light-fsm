@@ -10,10 +10,12 @@
     "esModuleInterop": true,
     "noImplicitReturns": true,
     "resolveJsonModule": true,
-    "allowJs": true,
     "strict": true,
+    "declaration": true,
     "noUncheckedIndexedAccess": true,
     "forceConsistentCasingInFileNames": true,
     "stripInternal": true,
-  },
+    "verbatimModuleSyntax": true,
+    "isolatedDeclarations": true
+  }
 }

@@ -2,7 +2,7 @@ import { expect, test } from 'vitest';
 
 import { sleep } from '@ls-stack/utils/sleep';
 
-import { FSMConfig, createFSM } from '../src/main.js';
+import { type FSMConfig, createFSM } from '../src/main.js';
 
 type LightStates = 'green' | 'yellow' | 'red' | 'emergency';
 type LightEvents = { type: 'TIMER_END' | 'EMERGENCY' };

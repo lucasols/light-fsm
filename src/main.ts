@@ -68,6 +68,23 @@ export type FSMConfig<P extends FSMProps> = {
   }
 : { guards?: undefined });
 
+type StoreState<Props extends FSMProps> = {
+  value: Props['states'];
+  prev: Props['states'] | undefined;
+  done: boolean;
+  lastEvent: Props['events'] | undefined;
+};
+
+type FSM<Props extends FSMProps> = {
+  state: Props['states'];
+  snapshot: StoreState<Props>;
+  send: (event: Props['events']) => {
+    changed: boolean;
+    snapshot: StoreState<Props>;
+  };
+  store: Store<StoreState<Props>>;
+};
+
 export function createFSM<Props extends FSMProps>({
   initial,
   states,
@@ -75,8 +92,7 @@ export function createFSM<Props extends FSMProps>({
   handleInvalidTransition,
   debug,
   guards,
-}: FSMConfig<Props>) {
-  type States = Props['states'];
+}: FSMConfig<Props>): FSM<Props> {
   type Events = Props['events'];
   type Guards = Props['guards'];
 
@@ -85,14 +101,7 @@ export function createFSM<Props extends FSMProps>({
   if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test')
     checkUnreachableStates(initial, states, on);
 
-  type StoreState = {
-    value: States;
-    prev: States | undefined;
-    done: boolean;
-    lastEvent: Events | undefined;
-  };
-
-  const store = new Store<StoreState>({
+  const store = new Store<StoreState<Props>>({
     state: {
       value: initial,
       prev: undefined,
@@ -116,8 +125,8 @@ export function createFSM<Props extends FSMProps>({
     guard: Guards | GuardFn<Props>,
     target: Target<Props>,
     event: Events,
-    prev: States,
-  ): States | null {
+    prev: Props['states'],
+  ): Props['states'] | null {
     const targetState = typeof target === 'string' ? target : target.target;
 
     if (guard === undefined) return targetState;
@@ -149,8 +158,8 @@ export function createFSM<Props extends FSMProps>({
   function getStateFromGuards(
     guardedTargets: GuardedTarget<Props>[],
     event: Events,
-    prev: States,
-  ): null | { state: States; action?: Action } {
+    prev: Props['states'],
+  ): null | { state: Props['states']; action?: Action } {
     for (const guardedTarget of guardedTargets) {
       const state = getStateFromGuard(
         guardedTarget.guard,
@@ -165,9 +174,9 @@ export function createFSM<Props extends FSMProps>({
     return null;
   }
 
-  function send(event: Events): {
+  function send(event: Props['events']): {
     changed: boolean;
-    snapshot: StoreState;
+    snapshot: StoreState<Props>;
   } {
     const currentState = store.state.value;
 
@@ -190,7 +199,7 @@ export function createFSM<Props extends FSMProps>({
     const nextTargetObj: Transitions<Props> | undefined =
       currentStateConfig.on?.[eventType] || on?.[eventType];
 
-    let nextState: States | null = null;
+    let nextState: Props['states'] | null = null;
     let action: Action | undefined = undefined;
     let hasGuards = false;
 
@@ -228,7 +237,7 @@ export function createFSM<Props extends FSMProps>({
 
     const changed = !!(nextState && nextState !== currentState);
 
-    let snapshot = undefined as StoreState | undefined;
+    let snapshot = undefined as StoreState<Props> | undefined;
 
     if (changed && nextState) {
       const nextStateConfig = states[nextState];
