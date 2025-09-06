@@ -12,6 +12,9 @@ importers:
         specifier: ^9.8.0
         version: 9.8.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
     devDependencies:
+      '@eslint/js':
+        specifier: ^9.35.0
+        version: 9.35.0
       '@ls-stack/extended-lint':
         specifier: ^0.68.4
         version: 0.68.4(eslint@9.35.0)(typescript@5.9.2)
