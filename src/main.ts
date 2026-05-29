@@ -1,114 +1,266 @@
 import { Store } from 't-state';
 
+/**
+ * A state is declared either as a bare name (no context) or as an object
+ * pairing the state `id` with its `ctx` shape.
+ */
+type StateDecl = string | { id: string; ctx?: unknown };
+
 type FSMProps = {
-  states: string;
+  states: StateDecl;
   events: { type: string };
   guards?: string;
 };
 
-type ActionArgs<P extends FSMProps> = {
-  next: P['states'];
-  prev: P['states'];
-  event: P['events'] | undefined;
-  send: (event: P['events']) => {
-    changed: boolean;
-  };
+/** The union of state names, extracted from bare strings and `{ id }` objects. */
+type StateNameOf<S> =
+  S extends string ? S
+  : S extends { id: infer Id extends string } ? Id
+  : never;
+
+type StateName<P extends FSMProps> = StateNameOf<P['states']>;
+
+/** Context for a single state — `undefined` when that state declares none. */
+type ContextOf<P extends FSMProps, S extends StateName<P>> =
+  [Extract<P['states'], { id: S }>] extends [never] ? undefined
+  : Extract<P['states'], { id: S }> extends { ctx: infer C } ? C
+  : undefined;
+
+type HasContext<P extends FSMProps> =
+  [Extract<P['states'], { ctx: unknown }>] extends [never] ? false : true;
+
+/** States that declare no context — the only ones allowed as a bare-string target. */
+type StatelessStates<P extends FSMProps> = {
+  [S in StateName<P>]: ContextOf<P, S> extends undefined ? S : never;
+}[StateName<P>];
+
+/**
+ * Narrows the event union to the matching `type`. Falls back to the full union
+ * for events declared as a single object with a union `type` field
+ * (e.g. `{ type: 'A' | 'B' }`), where narrowing is not possible.
+ */
+type EventFor<P extends FSMProps, E extends P['events']['type']> =
+  Extract<P['events'], { type: E }> extends never ? P['events']
+  : Extract<P['events'], { type: E }>;
+
+type SendFn<P extends FSMProps> = (event: P['events']) => { changed: boolean };
+
+type AssignArgs<P extends FSMProps, From extends StateName<P>, Ev> = {
+  event: Ev;
+  prev: From;
+  prevContext: ContextOf<P, From>;
+};
+
+type TransitionActionArgs<
+  P extends FSMProps,
+  From extends StateName<P>,
+  To extends StateName<P>,
+  Ev,
+> = {
+  prev: From;
+  next: To;
+  prevContext: ContextOf<P, From>;
+  context: ContextOf<P, To>;
+  event: Ev;
+  send: SendFn<P>;
 };
 
 export type GuardFn<P extends FSMProps> = (args: {
-  current: P['states'];
-  prev: P['states'];
+  current: StateName<P>;
+  prev: StateName<P>;
   event: P['events'];
 }) => boolean;
 
-type Target<P extends FSMProps> =
-  | P['states']
-  | {
-      target: P['states'];
-      guard?: P['guards'] | GuardFn<P>;
-      action?: (args: ActionArgs<P>) => void;
-    };
+/** `assign` is required iff the target state declares context, forbidden otherwise. */
+type AssignField<
+  P extends FSMProps,
+  From extends StateName<P>,
+  To extends StateName<P>,
+  Ev,
+> =
+  ContextOf<P, To> extends undefined ?
+    { assign?: undefined }
+  : { assign: (args: AssignArgs<P, From, Ev>) => ContextOf<P, To> };
 
-type GuardedTarget<P extends FSMProps> = {
+type TargetObj<
+  P extends FSMProps,
+  From extends StateName<P>,
+  To extends StateName<P>,
+  Ev,
+> = {
+  target: To;
   guard?: P['guards'] | GuardFn<P>;
-  target: Target<P>;
-  action?: (args: ActionArgs<P>) => void;
+  action?: (args: TransitionActionArgs<P, From, To, Ev>) => void;
+} & AssignField<P, From, To, Ev>;
+
+/** Distribute over every possible target so `assign`/`action` are pinned to `target`. */
+type AnyTargetObj<P extends FSMProps, From extends StateName<P>, Ev> = {
+  [To in StateName<P>]: TargetObj<P, From, To, Ev>;
+}[StateName<P>];
+
+type Transitions<P extends FSMProps, From extends StateName<P>, Ev> =
+  | StatelessStates<P>
+  | AnyTargetObj<P, From, Ev>
+  | AnyTargetObj<P, From, Ev>[];
+
+type EntryArgs<P extends FSMProps, K extends StateName<P>> = {
+  prev: StateName<P> | undefined;
+  next: K;
+  context: ContextOf<P, K>;
+  event: P['events'] | undefined;
+  send: SendFn<P>;
 };
 
-type Transitions<P extends FSMProps> = Target<P> | GuardedTarget<P>[];
+type ExitArgs<P extends FSMProps, K extends StateName<P>> = {
+  prev: K;
+  next: StateName<P>;
+  context: ContextOf<P, K>;
+  event: P['events'] | undefined;
+  send: SendFn<P>;
+};
+
+type StateConfig<P extends FSMProps, K extends StateName<P>> = {
+  on?: { [E in P['events']['type']]?: Transitions<P, K, EventFor<P, E>> };
+  final?: boolean;
+  entry?: (args: EntryArgs<P, K>) => void;
+  exit?: (args: ExitArgs<P, K>) => void;
+};
+
+/** `initialContext` is required iff the initial state declares context. */
+type InitialContextField<P extends FSMProps, Init extends StateName<P>> =
+  ContextOf<P, Init> extends undefined ?
+    { initialContext?: undefined }
+  : { initialContext: ContextOf<P, Init> };
+
+/**
+ * For machines that declare context, distributes `initial` + `initialContext`
+ * over each state so the provided `initial` literal pins `initialContext` to
+ * exactly that state's context. For context-less machines it collapses to a
+ * flat shape.
+ */
+type InitialField<P extends FSMProps> =
+  HasContext<P> extends true ?
+    {
+      [Init in StateName<P>]: { initial: Init } & InitialContextField<P, Init>;
+    }[StateName<P>]
+  : { initial: StateName<P>; initialContext?: undefined };
+
+type GuardsConfig<P extends FSMProps> =
+  P['guards'] extends string ?
+    { guards: { [K in P['guards']]: boolean | (() => boolean) } }
+  : { guards?: undefined };
 
 export type FSMConfig<P extends FSMProps> = {
-  initial: P['states'];
-  states: {
-    [K in P['states']]: {
-      on?: {
-        [E in P['events']['type']]?: Transitions<P>;
-      };
-      final?: boolean;
-      entry?: (
-        args: Omit<ActionArgs<P>, 'prev'> & {
-          prev: undefined | P['states'];
-        },
-      ) => void;
-      exit?: (args: ActionArgs<P>) => void;
-    };
-  };
+  states: { [K in StateName<P>]: StateConfig<P, K> };
   /** state independent transitions */
-  on?: { [E in P['events']['type']]?: Transitions<P> };
+  on?: {
+    [E in P['events']['type']]?: Transitions<P, StateName<P>, EventFor<P, E>>;
+  };
   handleInvalidTransition?: (
     error: Error,
-    state: { state: P['states']; event: P['events'] },
+    state: { state: StateName<P>; event: P['events'] },
   ) => void;
   debug?: string;
-} & (P['guards'] extends string ?
-  {
-    guards: {
-      [K in P['guards']]: boolean | (() => boolean);
-    };
-  }
-: { guards?: undefined });
+} & InitialField<P> &
+  GuardsConfig<P>;
 
-type StoreState<Props extends FSMProps> = {
-  value: Props['states'];
-  prev: Props['states'] | undefined;
-  done: boolean;
-  lastEvent: Props['events'] | undefined;
-};
+/**
+ * The matched state paired with its context. `ctx` is present only for states
+ * that declare context, so narrowing `current.id` narrows `current.ctx`.
+ */
+type StateValue<P extends FSMProps, S extends StateName<P>> =
+  ContextOf<P, S> extends undefined ?
+    { id: S }
+  : { id: S; ctx: ContextOf<P, S> };
 
-type FSM<Props extends FSMProps> = {
-  state: Props['states'];
-  snapshot: StoreState<Props>;
-  send: (event: Props['events']) => {
-    changed: boolean;
-    snapshot: StoreState<Props>;
+type Snapshot<P extends FSMProps> = {
+  [S in StateName<P>]: {
+    current: StateValue<P, S>;
+    prev: StateName<P> | undefined;
+    done: boolean;
+    lastEvent: P['events'] | undefined;
   };
-  store: Store<StoreState<Props>>;
+}[StateName<P>];
+
+/** Internal store shape. Bridged to the discriminated `Snapshot` at the boundary. */
+type InternalState<P extends FSMProps> = {
+  current: { id: StateName<P>; ctx?: unknown };
+  prev: StateName<P> | undefined;
+  done: boolean;
+  lastEvent: P['events'] | undefined;
 };
 
-export function createFSM<Props extends FSMProps>({
-  initial,
-  states,
-  on,
-  handleInvalidTransition,
-  debug,
-  guards,
-}: FSMConfig<Props>): FSM<Props> {
-  type Events = Props['events'];
-  type Guards = Props['guards'];
+type FSM<P extends FSMProps> = {
+  state: StateName<P>;
+  snapshot: Snapshot<P>;
+  send: (event: P['events']) => {
+    changed: boolean;
+    snapshot: Snapshot<P>;
+  };
+  store: Store<Snapshot<P>>;
+};
 
-  type Action = (args: ActionArgs<Props>) => void;
+export function createFSM<Props extends FSMProps>(
+  config: FSMConfig<Props>,
+): FSM<Props> {
+  type Events = Props['events'];
+  type AnyState = StateName<Props>;
+
+  // Runtime-only loose views over the strongly-typed config. The public types
+  // pin context/event per state; the runtime treats them uniformly, reusing the
+  // public arg shapes with the per-state generics widened to the full union.
+  type RuntimeTarget = {
+    target: AnyState;
+    guard?: Props['guards'] | GuardFn<Props>;
+    action?: (
+      args: TransitionActionArgs<Props, AnyState, AnyState, Events>,
+    ) => void;
+    assign?: (args: AssignArgs<Props, AnyState, Events>) => unknown;
+  };
+  type RuntimeTransitions = AnyState | RuntimeTarget | RuntimeTarget[];
+  type RuntimeStateConfig = {
+    on?: Record<string, RuntimeTransitions | undefined>;
+    final?: boolean;
+    entry?: (args: EntryArgs<Props, AnyState>) => void;
+    exit?: (args: ExitArgs<Props, AnyState>) => void;
+  };
+
+  const { initial, initialContext, on, handleInvalidTransition, debug, guards } =
+    config;
+
+  const states = config.states as unknown as Record<
+    StateName<Props>,
+    RuntimeStateConfig
+  >;
+  const stateIndependentOn = on as
+    | Record<string, RuntimeTransitions | undefined>
+    | undefined;
+  const guardsMap = guards as
+    | Record<string, boolean | (() => boolean)>
+    | undefined;
 
   if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test')
-    checkUnreachableStates(initial, states, on);
+    checkUnreachableStates(initial, config.states, on);
 
-  const store = new Store<StoreState<Props>>({
+  function makeCurrent(
+    id: StateName<Props>,
+    ctx: unknown,
+  ): InternalState<Props>['current'] {
+    return ctx === undefined ? { id } : { id, ctx };
+  }
+
+  const store = new Store<InternalState<Props>>({
     state: {
-      value: initial,
+      current: makeCurrent(initial, initialContext),
       prev: undefined,
       done: false,
       lastEvent: undefined,
     },
   });
+
+  function toSnapshot(state: InternalState<Props>): Snapshot<Props> {
+    return state as unknown as Snapshot<Props>;
+  }
 
   const initialStateConfig = states[initial];
 
@@ -116,69 +268,76 @@ export function createFSM<Props extends FSMProps>({
     initialStateConfig.entry({
       next: initial,
       prev: undefined,
+      context: initialContext as ContextOf<Props, StateName<Props>>,
       send,
       event: undefined,
     });
   }
 
-  function getStateFromGuard(
-    guard: Guards | GuardFn<Props>,
-    target: Target<Props>,
+  function resolveGuard(
+    guard: Props['guards'] | GuardFn<Props> | undefined,
     event: Events,
-    prev: Props['states'],
-  ): Props['states'] | null {
-    const targetState = typeof target === 'string' ? target : target.target;
-
-    if (guard === undefined) return targetState;
+  ): boolean {
+    if (guard === undefined) return true;
 
     if (typeof guard === 'function') {
-      const guardResult = guard({
-        current: store.state.value,
-        prev,
+      return guard({
+        current: store.state.current.id,
+        prev: store.state.current.id,
         event,
       });
-
-      return guardResult ? targetState : null;
     }
 
-    const guardResultOrFn = guards?.[guard];
+    const guardResultOrFn = guardsMap?.[guard];
 
     if (guardResultOrFn === undefined) {
       throw new Error(`Guard '${guard}' not found`);
     }
 
-    const guardResult =
-      typeof guardResultOrFn === 'boolean' ? guardResultOrFn : (
-        guardResultOrFn()
-      );
-
-    return guardResult ? targetState : null;
+    return typeof guardResultOrFn === 'boolean' ?
+        guardResultOrFn
+      : guardResultOrFn();
   }
 
-  function getStateFromGuards(
-    guardedTargets: GuardedTarget<Props>[],
+  function resolveTarget(
+    target: RuntimeTransitions,
     event: Events,
-    prev: Props['states'],
-  ): null | { state: Props['states']; action?: Action } {
-    for (const guardedTarget of guardedTargets) {
-      const state = getStateFromGuard(
-        guardedTarget.guard,
-        guardedTarget.target,
-        event,
-        prev,
-      );
-
-      if (state) return { state, action: guardedTarget.action };
+  ): {
+    state: StateName<Props>;
+    action?: RuntimeTarget['action'];
+    assign?: RuntimeTarget['assign'];
+  } | null {
+    if (typeof target === 'string') {
+      return { state: target };
     }
 
-    return null;
+    if (Array.isArray(target)) {
+      for (const guardedTarget of target) {
+        if (resolveGuard(guardedTarget.guard, event)) {
+          return {
+            state: guardedTarget.target,
+            action: guardedTarget.action,
+            assign: guardedTarget.assign,
+          };
+        }
+      }
+
+      return null;
+    }
+
+    if (!resolveGuard(target.guard, event)) {
+      return null;
+    }
+
+    return { state: target.target, action: target.action, assign: target.assign };
   }
 
   function send(event: Props['events']): {
     changed: boolean;
-    snapshot: StoreState<Props>;
+    snapshot: Snapshot<Props>;
   } {
-    const currentState = store.state.value;
+    const currentState = store.state.current.id;
+    const prevContext = store.state.current.ctx;
 
     const currentStateConfig = states[currentState];
 
@@ -190,61 +349,45 @@ export function createFSM<Props extends FSMProps>({
 
       return {
         changed: false,
-        snapshot: store.state,
+        snapshot: toSnapshot(store.state),
       };
     }
 
     const eventType = event.type as Props['events']['type'];
 
-    const nextTargetObj: Transitions<Props> | undefined =
-      currentStateConfig.on?.[eventType] || on?.[eventType];
+    const nextTargetObj =
+      currentStateConfig.on?.[eventType] || stateIndependentOn?.[eventType];
 
-    let nextState: Props['states'] | null = null;
-    let action: Action | undefined = undefined;
-    let hasGuards = false;
+    const resolved =
+      nextTargetObj !== undefined ?
+        resolveTarget(nextTargetObj, event)
+      : null;
 
-    if (nextTargetObj) {
-      if (typeof nextTargetObj === 'string') {
-        nextState = nextTargetObj;
-      }
-      //
-      else if (Array.isArray(nextTargetObj)) {
-        const state = getStateFromGuards(nextTargetObj, event, currentState);
-        hasGuards = true;
-
-        if (state) {
-          nextState = state.state;
-          action = state.action;
-        }
-      }
-      //
-      else if (nextTargetObj.guard) {
-        hasGuards = true;
-        nextState = getStateFromGuard(
-          nextTargetObj.guard,
-          nextTargetObj.target,
-          event,
-          currentState,
-        );
-        action = nextTargetObj.action;
-      }
-      //
-      else {
-        nextState = nextTargetObj.target;
-        action = nextTargetObj.action;
-      }
-    }
+    const nextState = resolved?.state ?? null;
+    const action = resolved?.action;
+    const assign = resolved?.assign;
+    const hasGuards = nextTargetObj !== undefined && resolved === null;
 
     const changed = !!(nextState && nextState !== currentState);
 
-    let snapshot = undefined as StoreState<Props> | undefined;
+    let snapshot = undefined as InternalState<Props> | undefined;
 
     if (changed && nextState) {
       const nextStateConfig = states[nextState];
 
+      const prevCtx = prevContext as ContextOf<Props, StateName<Props>>;
+
+      const nextContext = assign ?
+        assign({ event, prev: currentState, prevContext: prevCtx })
+      : undefined;
+
+      const nextCtx = nextContext as ContextOf<Props, StateName<Props>>;
+
+      const baseArgs = { prev: currentState, next: nextState, event, send };
+
       store.batch(() => {
         store.setState({
-          value: nextState,
+          current: makeCurrent(nextState, nextContext),
           prev: currentState,
           done: Boolean(nextStateConfig.final),
           lastEvent: event,
@@ -252,18 +395,11 @@ export function createFSM<Props extends FSMProps>({
 
         snapshot = store.state;
 
-        const actionArgs = {
-          next: nextState,
-          prev: currentState,
-          send,
-          event,
-        };
+        currentStateConfig.exit?.({ ...baseArgs, context: prevCtx });
 
-        currentStateConfig.exit?.(actionArgs);
+        action?.({ ...baseArgs, prevContext: prevCtx, context: nextCtx });
 
-        action?.(actionArgs);
-
-        nextStateConfig.entry?.(actionArgs);
+        nextStateConfig.entry?.({ ...baseArgs, context: nextCtx });
       });
 
       if (process.env.NODE_ENV === 'development' && debug) {
@@ -297,19 +433,19 @@ export function createFSM<Props extends FSMProps>({
 
     return {
       changed,
-      snapshot: snapshot ?? store.state,
+      snapshot: toSnapshot(snapshot ?? store.state),
     };
   }
 
   return {
     get state() {
-      return store.state.value;
+      return store.state.current.id;
     },
     get snapshot() {
-      return store.state;
+      return toSnapshot(store.state);
     },
     send,
-    store,
+    store: store as unknown as Store<Snapshot<Props>>,
   };
 }
 
@@ -325,29 +461,25 @@ type MockConfig = FSMConfig<{
 
 function checkUnreachableStates(
   initial: string,
-  _states: FSMConfig<any>['states'],
-  _on: FSMConfig<any>['on'],
+  _states: unknown,
+  _on: unknown,
 ): void {
   const states = _states as MockConfig['states'];
   const on = _on as MockConfig['on'];
 
   function isTargetState(
     target:
-      | Transitions<{
-          states: string;
-          events: { type: string };
-          guards?: string;
-        }>
+      | Transitions<
+          { states: string; events: { type: string }; guards?: string },
+          string,
+          { type: string }
+        >
       | undefined,
     state: string,
   ): boolean {
     if (Array.isArray(target)) {
       for (const guardedTarget of target) {
-        if (typeof guardedTarget.target === 'string') {
-          if (guardedTarget.target === state) {
-            return true;
-          }
-        } else if (guardedTarget.target.target === state) {
+        if (guardedTarget.target === state) {
           return true;
         }
       }

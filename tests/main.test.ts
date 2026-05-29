@@ -36,10 +36,12 @@ test('initial state should be set correctly', () => {
 
   expect(lightState.snapshot).toMatchInlineSnapshot(`
     {
+      "current": {
+        "id": "green",
+      },
       "done": false,
       "lastEvent": undefined,
       "prev": undefined,
-      "value": "green",
     }
   `);
 });
@@ -63,12 +65,14 @@ test('should transition correctly', () => {
 
   expect(lightState.snapshot).toMatchInlineSnapshot(`
     {
+      "current": {
+        "id": "green",
+      },
       "done": false,
       "lastEvent": {
         "type": "TIMER_END",
       },
       "prev": "red",
-      "value": "green",
     }
   `);
 });
@@ -109,12 +113,14 @@ test('end state should not transition', () => {
     {
       "changed": false,
       "snapshot": {
+        "current": {
+          "id": "emergency",
+        },
         "done": false,
         "lastEvent": {
           "type": "EMERGENCY",
         },
         "prev": "yellow",
-        "value": "emergency",
       },
     }
   `);
@@ -630,12 +636,14 @@ test('send back events on sync transition actions', () => {
 
   expect(result.snapshot).toMatchInlineSnapshot(`
     {
+      "current": {
+        "id": "b",
+      },
       "done": false,
       "lastEvent": {
         "type": "NEXT",
       },
       "prev": "a",
-      "value": "b",
     }
   `);
 });
